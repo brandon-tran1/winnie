@@ -1,0 +1,21 @@
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+.claude/
+
+# Node (only if you ever add the seed script)
+node_modules/
+package-lock.json
+
+# Local env (if you ever store JSONBin keys etc.)
+.env
+.env.local
+
+# Build artifacts (we have none, but just in case)
+dist/
+build/
+
+# Logs
+*.log
