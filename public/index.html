@@ -44,7 +44,7 @@
     <div class="header">
       <div>
         <h1>🐶 Winnie</h1>
-        <div class="sync-state"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">synced</span></div>
+        <button class="sync-state sync-btn" id="sync-btn" type="button" aria-label="Sync status — tap to refresh"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">starting…</span></button>
       </div>
       <button class="icon-btn" id="settings-btn">⚙</button>
     </div>
@@ -135,7 +135,7 @@
       <span id="event-count">—</span>
     </div>
     <div class="timeline" id="timeline">
-      <div class="empty-state">Loading…</div>
+      <div class="empty-state">Loading from cloud…</div>
     </div>
   </div>
 

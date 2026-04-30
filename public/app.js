@@ -113,6 +113,11 @@ const state = {
   calSelected: null,
   rangeTickInterval: null,
   scheduleEditingProfile: 'wfh',
+  syncing: false,
+  lastSyncOk: 0,
+  lastSyncError: false,
+  manualSyncFlash: false,
+  syncFlashTimer: null,
 };
 
 function blankModalState() {
@@ -317,15 +322,62 @@ async function pushRemote() {
 }
 
 function setSyncState(s) {
+  const btn = document.getElementById('sync-btn');
   const dot = document.getElementById('sync-dot');
   const text = document.getElementById('sync-text');
   if (!dot) return;
-  dot.classList.remove('offline', 'error');
-  if (s === 'offline') { dot.classList.add('offline'); text.textContent = 'offline'; }
-  else if (s === 'error') { dot.classList.add('error'); text.textContent = 'sync error'; }
-  else if (s === 'syncing') { text.textContent = 'syncing…'; }
-  else if (s === 'local') { dot.classList.add('offline'); text.textContent = 'this device only'; }
-  else { text.textContent = 'synced'; }
+  dot.classList.remove('offline', 'error', 'syncing', 'flash');
+  if (btn) btn.classList.remove('retry');
+  if (s === 'offline') {
+    dot.classList.add('offline');
+    text.textContent = 'offline · tap to retry';
+    if (btn) btn.classList.add('retry');
+  } else if (s === 'error') {
+    dot.classList.add('error');
+    text.textContent = 'sync error · tap to retry';
+    if (btn) btn.classList.add('retry');
+  } else if (s === 'syncing') {
+    dot.classList.add('syncing');
+    text.textContent = 'syncing…';
+  } else if (s === 'local') {
+    dot.classList.add('offline');
+    text.textContent = 'this device only';
+  } else {
+    // ok / synced — flash check briefly if user just manually retried or recovered from a failure
+    const wasError = state.lastSyncError;
+    state.lastSyncError = false;
+    state.lastSyncOk = Date.now();
+    if (state.manualSyncFlash || wasError) {
+      state.manualSyncFlash = false;
+      dot.classList.add('flash');
+      text.textContent = '✓ up to date';
+      clearTimeout(state.syncFlashTimer);
+      state.syncFlashTimer = setTimeout(() => {
+        if (text) text.textContent = 'synced';
+        if (dot) dot.classList.remove('flash');
+      }, 1500);
+    } else {
+      text.textContent = 'synced';
+    }
+  }
+  if (s === 'error' || s === 'offline') state.lastSyncError = true;
+}
+
+async function manualSync() {
+  if (state.syncing) return; // already in flight
+  if (state.mode !== 'shared' || !state.binId) {
+    // device-only mode — give a tiny visual ping but no network
+    setSyncState('local');
+    return;
+  }
+  state.manualSyncFlash = true;
+  state.syncing = true;
+  try {
+    await loadEvents(); // sets sync state internally (ok / error)
+    setTab(state.tab);
+  } finally {
+    state.syncing = false;
+  }
 }
 
 async function loadEvents() {
@@ -334,9 +386,11 @@ async function loadEvents() {
     const remote = await fetchRemote();
     if (remote !== null) {
       state.events = remote;
+      setSyncState('ok');
     } else {
       const cached = localStorage.getItem(LS.local);
       state.events = cached ? migrateAll(JSON.parse(cached)) : [];
+      // fetchRemote already set 'error' state; leave it
     }
   } else {
     const cached = localStorage.getItem(LS.local);
@@ -1899,8 +1953,12 @@ function init() {
     showApp();
   });
 
+  // Manual sync retry — tap the sync indicator
+  const syncBtn = document.getElementById('sync-btn');
+  if (syncBtn) syncBtn.addEventListener('click', manualSync);
+
   // Online/offline
-  window.addEventListener('online', () => { if (state.mode === 'shared') setSyncState('ok'); });
+  window.addEventListener('online', () => { if (state.mode === 'shared') manualSync(); });
   window.addEventListener('offline', () => setSyncState('offline'));
 
   // Visibility refresh

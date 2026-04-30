@@ -154,9 +154,24 @@ body {
 .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .header h1 { margin: 0; font-size: 22px; font-weight: 600; }
 .sync-state { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; display: flex; align-items: center; gap: 4px; }
-.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-strong); display: inline-block; }
+.sync-btn {
+  background: transparent; border: 0; padding: 4px 6px; margin: -4px -6px;
+  font-family: inherit; color: var(--text-tertiary); cursor: pointer;
+  border-radius: 6px; transition: background 0.15s, color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sync-btn:active { transform: scale(0.96); }
+.sync-btn.retry { color: var(--text-secondary); background: var(--surface); }
+.sync-btn.retry:active { background: var(--surface-2, var(--surface)); }
+.sync-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success-strong); display: inline-block; transition: background 0.2s; }
 .sync-dot.offline { background: #BA7517; }
 .sync-dot.error { background: #A32D2D; }
+.sync-dot.syncing { background: var(--text-tertiary); animation: sync-pulse 1.1s ease-in-out infinite; }
+.sync-dot.flash { background: var(--success-strong); box-shadow: 0 0 0 3px rgba(80, 160, 90, 0.15); }
+@keyframes sync-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
 
 .icon-btn {
   background: var(--surface); border: 0.5px solid var(--border);
