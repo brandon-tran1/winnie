@@ -118,6 +118,7 @@ const state = {
   lastSyncError: false,
   manualSyncFlash: false,
   syncFlashTimer: null,
+  remoteKnown: false, // true once we've successfully observed remote at least once
 };
 
 function blankModalState() {
@@ -385,16 +386,28 @@ async function loadEvents() {
     setSyncState('syncing');
     const remote = await fetchRemote();
     if (remote !== null) {
-      state.events = remote;
-      setSyncState('ok');
+      // Preserve any events in current state that aren't in remote — these are
+      // pending pushes (logged during fetch, or queued from a previous failed sync).
+      const remoteIds = new Set(remote.map(e => e.id));
+      const pending = state.events.filter(e => !remoteIds.has(e.id));
+      state.events = [...remote, ...pending];
+      state.remoteKnown = true;
+      if (pending.length > 0) {
+        // Flush pending events back up so they persist remotely
+        await pushRemote();
+      } else {
+        setSyncState('ok');
+      }
     } else {
       const cached = localStorage.getItem(LS.local);
       state.events = cached ? migrateAll(JSON.parse(cached)) : [];
-      // fetchRemote already set 'error' state; leave it
+      // fetchRemote already set 'error' state; leave it. remoteKnown stays false
+      // so subsequent saves keep deferring until we actually see remote.
     }
   } else {
     const cached = localStorage.getItem(LS.local);
     state.events = cached ? migrateAll(JSON.parse(cached)) : [];
+    state.remoteKnown = true;
     setSyncState('local');
   }
   state.events.sort((a, b) => b.time - a.time);
@@ -404,6 +417,10 @@ function saveDebounced() {
   localStorage.setItem(LS.local, JSON.stringify(state.events));
   if (state.saveDebounce) clearTimeout(state.saveDebounce);
   setSyncState('syncing');
+  // Defer push until we've successfully observed remote — pushing partial
+  // state.events before initial fetch returns would overwrite remote with
+  // a mostly-empty bin.
+  if (state.mode === 'shared' && !state.remoteKnown) return;
   state.saveDebounce = setTimeout(async () => { await pushRemote(); }, 600);
 }
 
