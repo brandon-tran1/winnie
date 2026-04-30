@@ -367,7 +367,11 @@ body {
   overflow: hidden;
 }
 .plan-block.nap-plan { background: var(--nap-bg); color: var(--nap-text); }
-.plan-block.meal-plan { background: var(--meal-bg); color: var(--meal-text); }
+.plan-block.meal-plan {
+  background: var(--meal-bg); color: var(--meal-text);
+  min-width: 4px;
+  border: 0.5px solid var(--meal-text);
+}
 .plan-block.slumber-plan { background: var(--slumber-bg); color: var(--slumber-text); }
 .plan-block.wake-plan { background: var(--warn-bg); color: var(--warn-text); }
 .plan-now {
@@ -375,6 +379,24 @@ body {
   background: var(--info-strong);
   pointer-events: none;
 }
+.plan-axis {
+  font-size: 10px; color: var(--text-tertiary);
+  display: flex; justify-content: space-between;
+}
+.plan-legend {
+  margin-top: 6px;
+  display: flex; flex-wrap: wrap; gap: 10px;
+  font-size: 10px; color: var(--text-secondary);
+}
+.plan-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.plan-swatch {
+  display: inline-block; width: 10px; height: 10px;
+  border-radius: 2px;
+}
+.plan-swatch.nap-plan { background: var(--nap-bg); }
+.plan-swatch.meal-plan { background: var(--meal-bg); border: 0.5px solid var(--meal-text); }
+.plan-swatch.slumber-plan { background: var(--slumber-bg); }
+.plan-swatch.wake-plan { background: var(--warn-bg); }
 
 /* ===== TIMELINE ===== */
 .section-header {
@@ -540,7 +562,9 @@ body {
   font-size: 13px;
 }
 .day-list-row {
-  display: flex; align-items: center; gap: 10px;
+  display: grid;
+  grid-template-columns: 132px 22px 1fr;
+  align-items: center; gap: 8px;
   padding: 6px 14px;
   cursor: pointer;
   color: var(--text);
@@ -549,10 +573,10 @@ body {
 .day-list-time {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-  min-width: 80px;
+  white-space: nowrap;
 }
-.day-list-icon { min-width: 22px; }
-.day-list-text { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; flex: 1; min-width: 0; }
+.day-list-icon { text-align: center; }
+.day-list-text { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; min-width: 0; }
 .day-list-text .day-tags { font-size: 10px; color: var(--text-secondary); margin-left: 4px; }
 
 /* ===== GROWTH ===== */

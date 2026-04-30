@@ -174,9 +174,12 @@ function timeAgo(ts) {
   if (diff < 60000) return 'just now';
   const mins = Math.round(diff / 60000);
   if (mins < 60) return mins + 'm ago';
-  const hours = mins / 60;
-  if (hours < 24) return hours.toFixed(hours < 10 ? 1 : 0) + 'h ago';
-  const days = Math.round(hours / 24);
+  if (mins < 1440) {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return (m === 0 ? `${h}h` : `${h}h ${m}m`) + ' ago';
+  }
+  const days = Math.round(mins / 1440);
   return days + 'd ago';
 }
 function formatClock(ts) {
@@ -207,10 +210,11 @@ function ageAt(ts) {
 }
 
 function todayProfileAuto() {
+  // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   const dow = new Date().getDay();
   if (dow === 0 || dow === 6) return 'weekend';
-  // Could later detect office vs WFH from calendar; default weekday → wfh
-  return 'wfh';
+  if (dow === 1 || dow === 5) return 'wfh';
+  return 'office';
 }
 
 function parseTimeToMins(hhmm) {
@@ -623,7 +627,12 @@ function setTab(tab) {
     b.classList.toggle('active', b.dataset.tab === tab);
   });
   if (tab === 'today') renderToday();
-  if (tab === 'calendar') renderCalendar();
+  if (tab === 'calendar') {
+    // Default to today's expanded view each time the tab opens
+    state.calCursor = monthStart(new Date());
+    state.calSelected = startOfDay(Date.now());
+    renderCalendar();
+  }
   if (tab === 'growth') renderGrowth();
 }
 
@@ -750,12 +759,13 @@ function renderPlanRow() {
     const w = pct(nap.end) - pct(nap.start);
     html += `<div class="plan-block nap-plan" style="left:${left}%;width:${w}%;">nap</div>`;
   }
-  // Meals — narrow blocks ~30min wide
+  // Meals — narrow blocks ~30min wide; label kept as tooltip since the bar is too narrow to render text
   for (const meal of sch.meals) {
     const startMins = parseTimeToMins(meal.time);
     const left = (startMins / 1440) * 100;
     const w = (30 / 1440) * 100;
-    html += `<div class="plan-block meal-plan" style="left:${left}%;width:${w}%;">${(meal.kind || 'meal').slice(0,4)}</div>`;
+    const title = (meal.kind || 'meal') + ' at ' + meal.time;
+    html += `<div class="plan-block meal-plan" style="left:${left}%;width:${w}%;" title="${escapeHtml(title)}"></div>`;
   }
   // Slumber: from slumber time to end of day
   const slumberLeft = pct(sch.slumber);
