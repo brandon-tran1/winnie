@@ -173,6 +173,47 @@ body {
   50%      { opacity: 1;    transform: scale(1.15); }
 }
 
+/* ===== PULL TO REFRESH ===== */
+.ptr-indicator {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 6px);
+  left: 50%;
+  transform: translate(-50%, -60px);
+  z-index: 100;
+  width: 36px; height: 36px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  transition: transform 0.25s ease, opacity 0.2s ease;
+}
+.ptr-arrow {
+  font-size: 16px; line-height: 1;
+  color: var(--text-secondary);
+  transition: transform 0.18s ease, color 0.18s ease;
+  display: inline-block;
+}
+.ptr-indicator.ready .ptr-arrow {
+  transform: rotate(180deg);
+  color: var(--success-strong);
+}
+.ptr-spinner {
+  display: none;
+  width: 16px; height: 16px;
+  border: 2px solid var(--surface-3);
+  border-top-color: var(--success-strong);
+  border-radius: 50%;
+  animation: ptr-spin 0.7s linear infinite;
+}
+.ptr-indicator.spinning .ptr-arrow { display: none; }
+.ptr-indicator.spinning .ptr-spinner { display: inline-block; }
+@keyframes ptr-spin {
+  to { transform: rotate(360deg); }
+}
+
 .icon-btn {
   background: var(--surface); border: 0.5px solid var(--border);
   border-radius: 10px; padding: 8px 10px; font-size: 14px;
