@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v3-ptr';
+const CACHE = 'winnie-v2-sync-ui';
 const ASSETS = [
   './',
   './index.html',

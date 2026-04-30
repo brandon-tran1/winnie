@@ -380,81 +380,6 @@ async function manualSync() {
   }
 }
 
-// ============================================================
-// Pull-to-refresh
-// ============================================================
-function setupPullToRefresh() {
-  const ind = document.getElementById('ptr-indicator');
-  if (!ind) return;
-
-  const THRESHOLD = 70;
-  const MAX_PULL = 130;
-  let startY = 0;
-  let active = false;
-
-  const canStart = () => {
-    if (state.syncing) return false;
-    if (window.scrollY > 0) return false;
-    if (document.querySelector('.modal-backdrop.visible')) return false;
-    if (document.getElementById('main').classList.contains('hidden')) return false; // setup screen
-    return true;
-  };
-
-  const reset = () => {
-    ind.style.transition = '';
-    ind.style.transform = '';
-    ind.style.opacity = '';
-    ind.classList.remove('ready', 'spinning');
-  };
-
-  const update = (dy) => {
-    const clamped = Math.max(0, Math.min(dy, MAX_PULL));
-    const eased = clamped <= THRESHOLD
-      ? clamped
-      : THRESHOLD + (clamped - THRESHOLD) * 0.4;
-    ind.style.transition = 'none';
-    ind.style.transform = `translate(-50%, ${eased - 60}px)`;
-    ind.style.opacity = String(Math.min(clamped / 30, 1));
-    ind.classList.toggle('ready', clamped >= THRESHOLD);
-  };
-
-  document.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1) return;
-    if (!canStart()) return;
-    startY = e.touches[0].clientY;
-    active = true;
-  }, { passive: true });
-
-  document.addEventListener('touchmove', (e) => {
-    if (!active) return;
-    if (e.touches.length !== 1 || window.scrollY > 0) {
-      active = false; reset(); return;
-    }
-    const dy = e.touches[0].clientY - startY;
-    if (dy <= 0) { active = false; reset(); return; }
-    update(dy);
-  }, { passive: true });
-
-  document.addEventListener('touchend', async () => {
-    if (!active) return;
-    active = false;
-    const triggered = ind.classList.contains('ready');
-    if (!triggered) { reset(); return; }
-    ind.classList.remove('ready');
-    ind.classList.add('spinning');
-    ind.style.transition = 'transform 0.18s ease, opacity 0.18s ease';
-    ind.style.transform = `translate(-50%, 16px)`;
-    ind.style.opacity = '1';
-    try { await manualSync(); } finally { setTimeout(reset, 400); }
-  });
-
-  document.addEventListener('touchcancel', () => {
-    if (!active) return;
-    active = false;
-    reset();
-  });
-}
-
 async function loadEvents() {
   if (state.mode === 'shared' && state.binId) {
     setSyncState('syncing');
@@ -2031,9 +1956,6 @@ function init() {
   // Manual sync retry — tap the sync indicator
   const syncBtn = document.getElementById('sync-btn');
   if (syncBtn) syncBtn.addEventListener('click', manualSync);
-
-  // Pull-to-refresh — second way to trigger sync
-  setupPullToRefresh();
 
   // Online/offline
   window.addEventListener('online', () => { if (state.mode === 'shared') manualSync(); });
