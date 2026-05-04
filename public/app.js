@@ -68,6 +68,7 @@ const LS = {
   schedule: 'winnie:schedule',
   scheduleProfile: 'winnie:scheduleProfile',
   schemaVersion: 'winnie:schema',
+  fingerprint: 'winnie:fp',
 };
 
 // Default ideal schedules
@@ -368,53 +369,97 @@ function setSyncState(s) {
   if (s === 'error' || s === 'offline') state.lastSyncError = true;
 }
 
-async function manualSync() {
-  if (state.syncing) return; // already in flight
-  if (state.mode !== 'shared' || !state.binId) {
-    // device-only mode — give a tiny visual ping but no network
-    setSyncState('local');
-    return;
+async function fetchRemoteWithRetry(maxAttempts) {
+  const delays = [0, 1500, 4000, 8000];
+  for (let i = 0; i < maxAttempts; i++) {
+    if (delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+    if (state.mode !== 'shared' || !state.binId) return null;
+    try {
+      const res = await fetch(`https://api.jsonbin.io/v3/b/${state.binId}/latest`, {
+        headers: { 'X-Bin-Meta': 'false' }
+      });
+      if (!res.ok) throw new Error('fetch failed: ' + res.status);
+      const data = await res.json();
+      return migrateAll(data);
+    } catch (e) {
+      console.warn(`fetchRemote attempt ${i + 1}/${maxAttempts}:`, e);
+      if (i === maxAttempts - 1) {
+        setSyncState('error');
+        return null;
+      }
+    }
   }
-  state.manualSyncFlash = true;
+  return null;
+}
+
+function fingerprint(events) {
+  if (!events || events.length === 0) return '0:0:0:';
+  let maxC = 0, maxM = 0, lastId = '';
+  for (const e of events) {
+    const c = e.created || 0;
+    const m = e.modified || 0;
+    if (c >= maxC) { maxC = c; lastId = e.id || ''; }
+    if (m > maxM) maxM = m;
+  }
+  return events.length + ':' + maxC + ':' + maxM + ':' + lastId;
+}
+
+function loadFromCache() {
+  const cached = localStorage.getItem(LS.local);
+  state.events = cached ? migrateAll(JSON.parse(cached)) : [];
+  state.events.sort((a, b) => b.time - a.time);
+  if (state.mode !== 'shared') {
+    state.remoteKnown = true;
+    setSyncState('local');
+  }
+}
+
+async function syncFromRemote({ retries = 0 } = {}) {
+  if (state.mode !== 'shared' || !state.binId) return;
+  if (state.syncing) return;
   state.syncing = true;
+  setSyncState('syncing');
   try {
-    await loadEvents(); // sets sync state internally (ok / error)
-    setTab(state.tab);
+    const remote = retries > 0
+      ? await fetchRemoteWithRetry(retries + 1)
+      : await fetchRemote();
+    if (remote === null) return; // fetch already set 'error'
+
+    const remoteIds = new Set(remote.map(e => e.id));
+    const pending = state.events.filter(e => !remoteIds.has(e.id));
+    const merged = [...remote, ...pending].sort((a, b) => b.time - a.time);
+
+    const prevFp = fingerprint(state.events);
+    const newFp = fingerprint(merged);
+
+    state.events = merged;
+    state.remoteKnown = true;
+    localStorage.setItem(LS.local, JSON.stringify(state.events));
+    localStorage.setItem(LS.fingerprint, fingerprint(remote));
+
+    if (pending.length > 0) {
+      await pushRemote();
+    } else {
+      setSyncState('ok');
+    }
+
+    if (newFp !== prevFp) setTab(state.tab);
   } finally {
     state.syncing = false;
   }
 }
 
-async function loadEvents() {
-  if (state.mode === 'shared' && state.binId) {
-    setSyncState('syncing');
-    const remote = await fetchRemote();
-    if (remote !== null) {
-      // Preserve any events in current state that aren't in remote — these are
-      // pending pushes (logged during fetch, or queued from a previous failed sync).
-      const remoteIds = new Set(remote.map(e => e.id));
-      const pending = state.events.filter(e => !remoteIds.has(e.id));
-      state.events = [...remote, ...pending];
-      state.remoteKnown = true;
-      if (pending.length > 0) {
-        // Flush pending events back up so they persist remotely
-        await pushRemote();
-      } else {
-        setSyncState('ok');
-      }
-    } else {
-      const cached = localStorage.getItem(LS.local);
-      state.events = cached ? migrateAll(JSON.parse(cached)) : [];
-      // fetchRemote already set 'error' state; leave it. remoteKnown stays false
-      // so subsequent saves keep deferring until we actually see remote.
-    }
-  } else {
-    const cached = localStorage.getItem(LS.local);
-    state.events = cached ? migrateAll(JSON.parse(cached)) : [];
-    state.remoteKnown = true;
+async function manualSync() {
+  if (state.mode !== 'shared' || !state.binId) {
     setSyncState('local');
+    return;
   }
-  state.events.sort((a, b) => b.time - a.time);
+  if (state.syncFlashTimer) {
+    clearTimeout(state.syncFlashTimer);
+    state.syncFlashTimer = null;
+  }
+  state.manualSyncFlash = true;
+  await syncFromRemote({ retries: 2 });
 }
 
 function saveDebounced() {
@@ -1586,8 +1631,11 @@ function showSetup() {
 async function showApp() {
   document.getElementById('setup').classList.add('hidden');
   document.getElementById('main').classList.remove('hidden');
-  await loadEvents();
+  loadFromCache();
   setTab(state.tab);
+  if (state.mode === 'shared') {
+    syncFromRemote({ retries: 2 }).catch(e => console.error('initial sync:', e));
+  }
 }
 
 async function runDiagnostics() {
@@ -1938,8 +1986,9 @@ function init() {
       localStorage.setItem(LS.mode, state.mode);
     }
     document.getElementById('settings-modal').classList.remove('visible');
-    await loadEvents();
+    loadFromCache();
     setTab(state.tab);
+    if (state.mode === 'shared') await syncFromRemote({ retries: 1 });
   });
   document.getElementById('export-btn').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify({ events: state.events, schemaVersion: SCHEMA_VERSION, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' });
@@ -1985,41 +2034,24 @@ function init() {
   if (syncBtn) syncBtn.addEventListener('click', manualSync);
 
   // Online/offline
-  window.addEventListener('online', () => { if (state.mode === 'shared') manualSync(); });
+  window.addEventListener('online', () => { if (state.mode === 'shared') syncFromRemote({ retries: 1 }); });
   window.addEventListener('offline', () => setSyncState('offline'));
 
   // Visibility refresh
-  document.addEventListener('visibilitychange', async () => {
+  document.addEventListener('visibilitychange', () => {
     if (!document.hidden && state.mode === 'shared') {
-      await loadEvents();
-      setTab(state.tab);
+      syncFromRemote();
     }
   });
 
   // Periodic timestamp re-render
   setInterval(() => { if (state.tab === 'today') renderToday(); }, 30000);
 
-  // Periodic remote sync
-  setInterval(async () => {
-    if (!document.hidden && state.mode === 'shared') {
-      const remote = await fetchRemote();
-      if (remote !== null) {
-        const byId = new Map();
-        [...state.events, ...remote].forEach(e => {
-          const cur = byId.get(e.id);
-          if (!cur || (e.created || 0) >= (cur.created || 0)) byId.set(e.id, e);
-        });
-        const remoteIds = new Set(remote.map(e => e.id));
-        const merged = [];
-        for (const [id, e] of byId) {
-          if (remoteIds.has(id)) merged.push(e);
-          else if ((Date.now() - (e.created || 0)) < 5000) merged.push(e);
-        }
-        state.events = merged.sort((a, b) => b.time - a.time);
-        if (state.tab === 'today') renderToday();
-      }
-    }
-  }, 60000);
+  // Periodic remote sync — gentle cadence to stay well under JSONBin rate limits.
+  // Visibility-change covers the common case of returning to the app.
+  setInterval(() => {
+    if (!document.hidden && state.mode === 'shared') syncFromRemote();
+  }, 5 * 60 * 1000);
 
   if (!state.mode) showSetup();
   else showApp();
