@@ -311,7 +311,7 @@ body {
 .tag-pill:active { transform: scale(0.94); }
 
 .range-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr);
+  display: grid; grid-template-columns: 1fr;
   gap: 8px; margin-bottom: 14px;
 }
 .range-tile {

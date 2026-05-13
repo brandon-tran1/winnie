@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v13-slumber-threshold';
+const CACHE = 'winnie-v14-gps-zones';
 const ASSETS = [
   './',
   './index.html',

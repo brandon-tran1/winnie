@@ -67,7 +67,16 @@ const LS = {
   tab: 'winnie:tab',
   schemaVersion: 'winnie:schema',
   fingerprint: 'winnie:fp',
+  zones: 'winnie:zones',
 };
+
+// Default location zones (per-device, pre-seeded with Winnie's home turf).
+// Each event captures raw GPS coords; zones are matched at display time, with
+// a Nominatim reverse-geocode fallback to a city name when no zone matches.
+const DEFAULT_ZONES = [
+  { id: 'zone_home',     name: 'Home',                lat: 37.5084434, lng: -122.2612171, radius: 120 },
+  { id: 'zone_downtown', name: 'Downtown San Carlos', lat: 37.4957691, lng: -122.2482575, radius: 500 },
+];
 
 // ============================================================
 // State
@@ -77,6 +86,7 @@ const state = {
   binId: localStorage.getItem(LS.bin) || '',
   mode: localStorage.getItem(LS.mode) || '',
   tab: localStorage.getItem(LS.tab) || 'today',
+  zones: loadZones(),
   lastUndo: null,
   undoTimer: null,
   saveDebounce: null,
@@ -95,6 +105,93 @@ const state = {
 
 function blankModalState() {
   return { type: null, mins: null, customTime: null, customEndTime: null, tags: [], who: 'us', precision: 'exact', subkind: '' };
+}
+
+function loadZones() {
+  const raw = localStorage.getItem(LS.zones);
+  if (raw) try { return JSON.parse(raw); } catch {}
+  return JSON.parse(JSON.stringify(DEFAULT_ZONES));
+}
+function saveZones() { localStorage.setItem(LS.zones, JSON.stringify(state.zones)); }
+
+// ============================================================
+// Geolocation + zone resolution
+// ============================================================
+const GEO_OPTIONS = { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 };
+
+// Fire a GPS fix in the background and attach coords to the event when it arrives.
+// Browser caches recent fixes (maximumAge), so back-to-back logs at the same spot
+// resolve instantly without re-prompting.
+function captureLocationFor(eventId) {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const evt = state.events.find(e => e.id === eventId);
+      if (!evt) return;
+      evt.coords = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        acc: pos.coords.accuracy
+      };
+      saveDebounced();
+      if (state.tab === 'today') renderToday();
+    },
+    () => { /* denied / timeout — leave event un-located */ },
+    GEO_OPTIONS
+  );
+}
+
+function _haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const rad = d => d * Math.PI / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+function resolveZone(coords) {
+  if (!coords) return null;
+  let best = null, bestD = Infinity;
+  for (const z of state.zones) {
+    const d = _haversineMeters(coords.lat, coords.lng, z.lat, z.lng);
+    if (d <= z.radius && d < bestD) { best = z; bestD = d; }
+  }
+  return best ? best.name : null;
+}
+
+// Reverse-geocode to city via Nominatim. Cached per ~1km bucket so repeat
+// queries don't re-hit the network. Returns null on first call, then re-renders
+// when the fetch resolves so the label fills in.
+const _cityCache = new Map();
+const _cityFetching = new Set();
+function cityFor(coords) {
+  if (!coords) return null;
+  const key = coords.lat.toFixed(2) + ',' + coords.lng.toFixed(2);
+  if (_cityCache.has(key)) return _cityCache.get(key);
+  if (!_cityFetching.has(key)) _fetchCity(coords, key);
+  return null;
+}
+async function _fetchCity(coords, key) {
+  _cityFetching.add(key);
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json&zoom=10&addressdetails=1`;
+    const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    const data = await res.json();
+    const a = data.address || {};
+    const city = a.city || a.town || a.village || a.suburb || a.county || 'elsewhere';
+    _cityCache.set(key, city);
+    if (state.tab === 'today') renderToday();
+  } catch {
+    _cityCache.set(key, 'elsewhere');
+  } finally {
+    _cityFetching.delete(key);
+  }
+}
+
+function locationLabel(coords) {
+  if (!coords) return null;
+  return resolveZone(coords) || cityFor(coords);
 }
 
 // ============================================================
@@ -446,6 +543,10 @@ function logPoint(type, opts = {}) {
   state.events.unshift(evt);
   state.events.sort((a, b) => b.time - a.time);
   saveDebounced();
+  // Pee/poop get a background GPS fix attached when it resolves.
+  if ((type === 'pee' || type === 'poop') && !opts.retroactive) {
+    captureLocationFor(evt.id);
+  }
   return evt;
 }
 
@@ -908,10 +1009,13 @@ function renderEventRow(row) {
 
     const tagPills = renderTagPills(tags, e1.who, e1);
     const retroPill = (e1.retroactive || e2.retroactive) ? '<span class="tag retro">added later</span>' : '';
+    const gpsLabel = locationLabel(e1.coords || e2.coords);
+    const displayLoc = gpsLabel || e1.location || e2.location || '';
+    const locText = displayLoc ? ` <span class="tag location">📍${escapeHtml(displayLoc)}</span>` : '';
     el.innerHTML = `
       <div class="event-icon">🟨💩</div>
       <div class="event-main">
-        <div class="event-type">Pee + poop ${tagPills}${retroPill}</div>
+        <div class="event-type">Pee + poop ${tagPills}${locText}${retroPill}</div>
         <div class="event-meta">
           <span>${formatClockLong(earlier.time)}</span><span>·</span>
           <span>${gapMin}m apart</span><span>·</span>
@@ -944,7 +1048,9 @@ function renderEventRow(row) {
 
     const noteText = e.note ? `<div class="event-note">"${escapeHtml(e.note)}"</div>` :
                      e.description ? `<div class="event-note">${escapeHtml(e.description)}</div>` : '';
-    const locText = e.location ? ` <span class="tag location">📍${escapeHtml(e.location)}</span>` : '';
+    const gpsLabel = (e.type === 'pee' || e.type === 'poop') ? locationLabel(e.coords) : null;
+    const displayLoc = gpsLabel || e.location || '';
+    const locText = displayLoc ? ` <span class="tag location">📍${escapeHtml(displayLoc)}</span>` : '';
 
     el.innerHTML = `
       <div class="event-icon">${TYPE_DEFS[e.type]?.icon || '?'}</div>
@@ -978,7 +1084,6 @@ function renderRangeTiles() {
   // 'sleep' is a virtual tile — it represents any active nap or slumber. When the
   // user starts one, classifySleepStart() picks the underlying type by clock.
   renderRangeTile('sleep', activeSleep(), { icon: '💤', startLabel: 'Start sleep' });
-  renderRangeTile('walk',  findActiveRange('walk'), { icon: '🚶', startLabel: 'Start walk' });
 }
 function renderRangeTile(tileKey, active, opts) {
   const tile = document.getElementById('range-' + tileKey);
