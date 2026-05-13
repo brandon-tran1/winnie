@@ -488,10 +488,14 @@ function activeSleep() {
 }
 
 // Decide nap vs slumber based on when sleep is *starting*. Anything begun between
-// 5pm and 6am counts as slumber; everything else is a nap.
+// 6:30pm and 6am counts as slumber; everything else is a nap. Classification is
+// locked at start — a long late-afternoon nap (e.g. 4pm–7pm) stays a nap.
 function classifySleepStart(now = Date.now()) {
-  const h = new Date(now).getHours();
-  return (h >= 17 || h < 6) ? 'slumber' : 'nap';
+  const d = new Date(now);
+  const mins = d.getHours() * 60 + d.getMinutes();
+  const slumberStart = 18 * 60 + 30;  // 18:30
+  const slumberEnd = 6 * 60;          // 06:00
+  return (mins >= slumberStart || mins < slumberEnd) ? 'slumber' : 'nap';
 }
 
 // --- Motive bars (Sims-style) ---

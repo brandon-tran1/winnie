@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v12-unified-sleep';
+const CACHE = 'winnie-v13-slumber-threshold';
 const ASSETS = [
   './',
   './index.html',
