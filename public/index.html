@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="styles.css?v=16" />
+<link rel="stylesheet" href="styles.css?v=17" />
 <title>Winnie 🐶</title>
 </head>
 <body>
@@ -72,9 +72,8 @@
           <span class="motive-status">—</span>
         </div>
       </div>
-      <div class="prediction-row" style="display: none;">
-        <strong>Rest of today:</strong> <span id="rest-of-day">—</span>
-      </div>
+      <div class="day-insight hidden" id="bedtime-eta"></div>
+      <div class="day-insight anomaly hidden" id="anomalies"></div>
     </div>
 
     <div class="undo-bar" id="undo-bar">
@@ -375,6 +374,6 @@
   </div>
 </div>
 
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

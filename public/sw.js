@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v16-edit-sync-coords';
+const CACHE = 'winnie-v17-bedtime-anomalies';
 const ASSETS = [
   './',
   './index.html',

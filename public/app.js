@@ -993,42 +993,83 @@ function energyMotiveText(now) {
   return `${formatDuration(now - Math.max(...sleepEnds))} awake`;
 }
 
+// Day-level predictions. Returns:
+//   bedtimeEta — predicted "last event of the day" timestamp, or null when not relevant
+//   anomalies  — array of short strings flagging unusual partial-day-so-far state
+// Both hide during active sleep.
 function predictions() {
   const now = Date.now();
-  if (activeSleep()) return { restOfDay: null, suppressed: 'sleep' };
+  if (activeSleep()) return { bedtimeEta: null, anomalies: [], suppressed: 'sleep' };
 
-  // Rest of day
-  let restOfDay = null;
   const todayStart = startOfDay(now);
-  const hour = new Date(now).getHours();
-  if (hour >= 14) {
-    const todayEvents = state.events.filter(e => e.time >= todayStart && e.time <= now);
-    const todayPees = todayEvents.filter(e => e.type === 'pee').length;
-    const todayPoops = todayEvents.filter(e => e.type === 'poop').length;
-    const windows = [];
-    for (let i = 1; i <= 30 && windows.length < 14; i++) {
-      const dayStart = startOfDay(now - i * 86400000);
-      const dayEnd = endOfDay(dayStart);
-      const dayEvents = state.events.filter(e => e.time >= dayStart && e.time <= dayEnd);
-      if (dayEvents.length === 0) continue;
-      const pees = dayEvents.filter(e => e.type === 'pee').length;
-      const poops = dayEvents.filter(e => e.type === 'poop').length;
-      const lastEvt = Math.max(...dayEvents.map(e => e.time));
-      const lastEvtMins = (lastEvt - dayStart) / 60000;
-      windows.push({ pees, poops, lastEvtMins });
-    }
-    if (windows.length >= 3) {
-      const avgPees = windows.reduce((a, w) => a + w.pees, 0) / windows.length;
-      const avgPoops = windows.reduce((a, w) => a + w.poops, 0) / windows.length;
-      const avgLastMins = windows.reduce((a, w) => a + w.lastEvtMins, 0) / windows.length;
-      const morePees = Math.max(0, Math.round(avgPees - todayPees));
-      const morePoops = Math.max(0, Math.round(avgPoops - todayPoops));
-      const lastTime = todayStart + avgLastMins * 60000;
-      restOfDay = { morePees, morePoops, lastTime };
+  const hourNow = (now - todayStart) / 3600000; // 0..24
+
+  // Build per-day history once for both signals.
+  const histDays = [];
+  for (let i = 1; i <= 30 && histDays.length < 14; i++) {
+    const dStart = startOfDay(now - i * 86400000);
+    const dEnd = endOfDay(dStart);
+    const evts = state.events.filter(e => e.time >= dStart && e.time <= dEnd);
+    if (evts.length === 0) continue;
+    histDays.push({ start: dStart, evts });
+  }
+
+  // --- Bedtime ETA: average time-of-last-event across history, shown only when
+  // it's still meaningfully ahead of now (after 5pm, more than 30min away).
+  let bedtimeEta = null;
+  if (histDays.length >= 3 && hourNow >= 17) {
+    const lastMinsList = histDays.map(d => (Math.max(...d.evts.map(e => e.time)) - d.start) / 60000);
+    const avgLastMins = lastMinsList.reduce((a, b) => a + b, 0) / lastMinsList.length;
+    const eta = todayStart + avgLastMins * 60000;
+    if (eta > now + 30 * 60000) bedtimeEta = eta;
+  }
+
+  // --- Anomalies: today's partial counts vs typical-by-this-hour, plus an
+  // "overdue poop" flag based on the 90th percentile of poop-to-poop gaps.
+  const anomalies = [];
+  if (histDays.length >= 5) {
+    const typicalCountByHour = (type) => {
+      const counts = histDays.map(d =>
+        d.evts.filter(e => e.type === type && (e.time - d.start) / 3600000 <= hourNow).length
+      );
+      return counts.reduce((a, b) => a + b, 0) / counts.length;
+    };
+    const todayCount = (type) =>
+      state.events.filter(e => e.type === type && e.time >= todayStart && e.time <= now).length;
+
+    const checkCount = (type, label, minBase, threshold) => {
+      const avg = typicalCountByHour(type);
+      if (avg < minBase) return; // too sparse to compare meaningfully
+      const cur = todayCount(type);
+      const diff = cur - avg;
+      const pct = Math.round(Math.abs(diff) / avg * 100);
+      if (pct >= threshold) anomalies.push(`${label} ${diff > 0 ? '↑' : '↓'}${pct}%`);
+    };
+    checkCount('pee',  'pees',  3, 30);
+    checkCount('poop', 'poops', 1, 40);
+
+    // Overdue poop: time since last vs p90 of recent gaps, with a 12h floor.
+    const lastPoop = state.events.find(e => e.type === 'poop');
+    if (lastPoop) {
+      const sinceH = (now - lastPoop.time) / 3600000;
+      const poops = state.events
+        .filter(e => e.type === 'poop' && e.time >= now - 14 * 86400000)
+        .sort((a, b) => a.time - b.time);
+      const gaps = [];
+      for (let i = 1; i < poops.length; i++) {
+        gaps.push((poops[i].time - poops[i - 1].time) / 3600000);
+      }
+      if (gaps.length >= 5) {
+        const sorted = [...gaps].sort((a, b) => a - b);
+        const p90 = sorted[Math.floor(sorted.length * 0.9)];
+        if (sinceH > p90 && sinceH > 12) {
+          anomalies.push(`poop ${Math.round(sinceH)}h overdue`);
+        }
+      }
     }
   }
 
-  return { restOfDay, suppressed: null };
+  return { bedtimeEta, anomalies, suppressed: null };
 }
 
 // ============================================================
@@ -1094,16 +1135,23 @@ function renderToday() {
   renderMotive('motive-energy',  energyState(now),  ()  => energyMotiveText(now));
   renderMotive('motive-hunger',  hungerState(now),  st => drainMotiveText('meal', st, now));
 
-  const { restOfDay, suppressed } = predictions();
-
-  const rodEl = document.getElementById('rest-of-day');
-  if (rodEl) {
-    if (!restOfDay || suppressed) {
-      rodEl.parentElement.style.display = 'none';
+  const { bedtimeEta, anomalies } = predictions();
+  const bedtimeEl = document.getElementById('bedtime-eta');
+  const anomalyEl = document.getElementById('anomalies');
+  if (bedtimeEl) {
+    if (bedtimeEta) {
+      bedtimeEl.textContent = `Wind down ~${formatClock(bedtimeEta)}`;
+      bedtimeEl.classList.remove('hidden');
     } else {
-      rodEl.parentElement.style.display = 'block';
-      const lastClock = formatClock(restOfDay.lastTime);
-      rodEl.textContent = `~${restOfDay.morePees} more pees, ~${restOfDay.morePoops} more poops, last around ${lastClock}`;
+      bedtimeEl.classList.add('hidden');
+    }
+  }
+  if (anomalyEl) {
+    if (anomalies.length) {
+      anomalyEl.textContent = anomalies.join(' · ');
+      anomalyEl.classList.remove('hidden');
+    } else {
+      anomalyEl.classList.add('hidden');
     }
   }
 
