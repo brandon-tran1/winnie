@@ -1,5 +1,5 @@
 // ============================================================
-// Winnie v2.4 — Schema v3 + Ideal Schedule
+// Winnie v2.5 — Schema v3 + Sims motives
 // ============================================================
 
 const SCHEMA_VERSION = 3;
@@ -65,35 +65,8 @@ const LS = {
   local: 'winnie:local',
   mode: 'winnie:mode',
   tab: 'winnie:tab',
-  schedule: 'winnie:schedule',
-  scheduleProfile: 'winnie:scheduleProfile',
   schemaVersion: 'winnie:schema',
   fingerprint: 'winnie:fp',
-};
-
-// Default ideal schedules
-const DEFAULT_SCHEDULES = {
-  wfh: {
-    label: 'WFH',
-    wake: '07:30',
-    slumber: '20:00',
-    naps: [{ start: '09:30', end: '13:00' }, { start: '15:00', end: '17:00' }],
-    meals: [{ time: '08:00', kind: 'breakfast' }, { time: '17:30', kind: 'dinner' }]
-  },
-  office: {
-    label: 'Office',
-    wake: '06:00',
-    slumber: '20:00',
-    naps: [{ start: '08:00', end: '12:00' }, { start: '13:00', end: '17:00' }],
-    meals: [{ time: '06:30', kind: 'breakfast' }, { time: '17:30', kind: 'dinner' }]
-  },
-  weekend: {
-    label: 'Weekend',
-    wake: '08:00',
-    slumber: '21:00',
-    naps: [{ start: '10:30', end: '13:00' }, { start: '15:00', end: '17:00' }],
-    meals: [{ time: '08:30', kind: 'breakfast' }, { time: '18:00', kind: 'dinner' }]
-  },
 };
 
 // ============================================================
@@ -104,7 +77,6 @@ const state = {
   binId: localStorage.getItem(LS.bin) || '',
   mode: localStorage.getItem(LS.mode) || '',
   tab: localStorage.getItem(LS.tab) || 'today',
-  schedules: loadSchedules(),
   lastUndo: null,
   undoTimer: null,
   saveDebounce: null,
@@ -113,7 +85,6 @@ const state = {
   calCursor: monthStart(new Date()),
   calSelected: null,
   rangeTickInterval: null,
-  scheduleEditingProfile: 'wfh',
   syncing: false,
   lastSyncOk: 0,
   lastSyncError: false,
@@ -124,15 +95,6 @@ const state = {
 
 function blankModalState() {
   return { type: null, mins: null, customTime: null, customEndTime: null, tags: [], who: 'us', precision: 'exact', subkind: '' };
-}
-
-function loadSchedules() {
-  const raw = localStorage.getItem(LS.schedule);
-  if (raw) try { return { ...DEFAULT_SCHEDULES, ...JSON.parse(raw) }; } catch {}
-  return JSON.parse(JSON.stringify(DEFAULT_SCHEDULES));
-}
-function saveSchedules() {
-  localStorage.setItem(LS.schedule, JSON.stringify(state.schedules));
 }
 
 // ============================================================
@@ -208,25 +170,6 @@ function ageAt(ts) {
     return { months, label: Math.floor(months) + ' months' };
   }
   return { months, label: (months / 12).toFixed(1) + ' years' };
-}
-
-function todayProfileAuto() {
-  // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-  const dow = new Date().getDay();
-  if (dow === 0 || dow === 6) return 'weekend';
-  if (dow === 1 || dow === 5) return 'wfh';
-  return 'office';
-}
-
-function parseTimeToMins(hhmm) {
-  const [h, m] = hhmm.split(':').map(Number);
-  return h * 60 + m;
-}
-function timeToTodayTs(hhmm, baseDate = new Date()) {
-  const [h, m] = hhmm.split(':').map(Number);
-  const d = new Date(baseDate);
-  d.setHours(h, m, 0, 0);
-  return d.getTime();
 }
 
 // ============================================================
@@ -843,31 +786,6 @@ function predictions() {
 }
 
 // ============================================================
-// Schedule logic ("next up")
-// ============================================================
-function getActiveSchedule() {
-  return state.schedules[todayProfileAuto()] || state.schedules.wfh;
-}
-
-function nextScheduledEvent(now = Date.now()) {
-  // Build today's schedule events, find the next one after `now`
-  const sch = getActiveSchedule();
-  const baseDate = new Date(now);
-  const items = [];
-  items.push({ kind: 'wake', label: 'Wake', icon: '☀️', ts: timeToTodayTs(sch.wake, baseDate) });
-  for (const meal of sch.meals) {
-    items.push({ kind: 'meal', label: meal.kind || 'Meal', icon: '🍽', ts: timeToTodayTs(meal.time, baseDate) });
-  }
-  for (const nap of sch.naps) {
-    items.push({ kind: 'nap-start', label: 'Nap', icon: '💤', ts: timeToTodayTs(nap.start, baseDate) });
-  }
-  items.push({ kind: 'slumber', label: 'Slumber', icon: '🌙', ts: timeToTodayTs(sch.slumber, baseDate) });
-  // Sort and find next after now
-  items.sort((a, b) => a.ts - b.ts);
-  return items.find(i => i.ts > now);
-}
-
-// ============================================================
 // Timeline collapse (3-min pee+poop merge)
 // ============================================================
 function buildTimelineRows(events) {
@@ -943,31 +861,6 @@ function renderToday() {
     }
   }
 
-  // "Next up" card from schedule
-  const nextUp = nextScheduledEvent(now);
-  const nextUpCard = document.getElementById('next-up');
-  if (nextUp) {
-    const minsAway = Math.round((nextUp.ts - now) / 60000);
-    let timeText;
-    if (minsAway < 1) timeText = 'now';
-    else if (minsAway < 60) timeText = 'in ' + minsAway + 'm';
-    else timeText = 'at ' + formatClock(nextUp.ts);
-    const profile = state.schedules[todayProfileAuto()].label;
-    nextUpCard.innerHTML = `
-      <span class="next-up-icon">${nextUp.icon}</span>
-      <div>
-        <div class="next-up-title">${nextUp.label} ${timeText}</div>
-        <div class="next-up-sub">on schedule · <span class="profile-pill">${profile}</span></div>
-      </div>
-    `;
-    nextUpCard.classList.remove('hidden');
-  } else {
-    nextUpCard.classList.add('hidden');
-  }
-
-  // Plan row visualization
-  renderPlanRow();
-
   // Range tiles
   renderRangeTiles();
 
@@ -984,54 +877,6 @@ function renderToday() {
   const rows = buildTimelineRows(todayEvents);
   timeline.innerHTML = '';
   rows.forEach(row => timeline.appendChild(renderEventRow(row)));
-}
-
-function renderPlanRow() {
-  const sch = getActiveSchedule();
-  const track = document.getElementById('plan-track');
-  if (!track) return;
-
-  const dayStart = startOfDay(Date.now());
-  const dayMs = 86400000;
-
-  // Map a clock string to position on track (% of day)
-  const pct = (hhmm) => (parseTimeToMins(hhmm) / 1440) * 100;
-
-  let html = '';
-  // Naps
-  for (const nap of sch.naps) {
-    const left = pct(nap.start);
-    const w = pct(nap.end) - pct(nap.start);
-    html += `<div class="plan-block nap-plan" style="left:${left}%;width:${w}%;">nap</div>`;
-  }
-  // Meals — narrow blocks ~30min wide; label kept as tooltip since the bar is too narrow to render text
-  for (const meal of sch.meals) {
-    const startMins = parseTimeToMins(meal.time);
-    const left = (startMins / 1440) * 100;
-    const w = (30 / 1440) * 100;
-    const title = (meal.kind || 'meal') + ' at ' + meal.time;
-    html += `<div class="plan-block meal-plan" style="left:${left}%;width:${w}%;" title="${escapeHtml(title)}"></div>`;
-  }
-  // Slumber: from slumber time to end of day
-  const slumberLeft = pct(sch.slumber);
-  const slumberWidth = 100 - slumberLeft;
-  html += `<div class="plan-block slumber-plan" style="left:${slumberLeft}%;width:${slumberWidth}%;">sleep</div>`;
-  // Wake: small marker
-  const wakeLeft = pct(sch.wake);
-  html += `<div class="plan-block wake-plan" style="left:${wakeLeft}%;width:1.5%;"></div>`;
-
-  // Now line
-  const now = Date.now();
-  const nowMins = (now - dayStart) / 60000;
-  const nowPct = (nowMins / 1440) * 100;
-  html += `<div class="plan-now" style="left:${Math.max(0, Math.min(100, nowPct))}%;"></div>`;
-
-  track.innerHTML = html;
-
-  // Profile label
-  const profile = state.schedules[todayProfileAuto()].label;
-  const lblEl = document.getElementById('plan-profile-label');
-  if (lblEl) lblEl.textContent = profile + ' schedule';
 }
 
 function renderEventRow(row) {
@@ -1709,106 +1554,6 @@ function toggleTypeSpecificFields() {
 }
 
 // ============================================================
-// Schedule editor
-// ============================================================
-function openScheduleEditor() {
-  state.scheduleEditingProfile = todayProfileAuto();
-  renderScheduleEditor();
-  document.getElementById('schedule-modal').classList.add('visible');
-}
-
-function renderScheduleEditor() {
-  const profile = state.scheduleEditingProfile;
-  const sch = state.schedules[profile];
-  document.querySelectorAll('.profile-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.profile === profile);
-  });
-
-  const list = document.getElementById('schedule-list');
-  list.innerHTML = '';
-
-  // Wake
-  list.innerHTML += `
-    <div class="schedule-row">
-      <span class="ico">☀️</span>
-      <span class="lbl">Wake</span>
-      <input type="time" data-sch-field="wake" value="${sch.wake}">
-    </div>
-  `;
-  // Meals
-  sch.meals.forEach((meal, i) => {
-    list.innerHTML += `
-      <div class="schedule-row">
-        <span class="ico">🍽</span>
-        <span class="lbl">${escapeHtml(meal.kind || 'meal')}</span>
-        <input type="time" data-sch-field="meal" data-sch-idx="${i}" value="${meal.time}">
-        <button class="delete-btn" data-sch-del="meal" data-sch-idx="${i}">×</button>
-      </div>
-    `;
-  });
-  // Naps
-  sch.naps.forEach((nap, i) => {
-    list.innerHTML += `
-      <div class="schedule-row">
-        <span class="ico">💤</span>
-        <span class="lbl">Nap ${i+1}</span>
-        <input type="time" data-sch-field="nap-start" data-sch-idx="${i}" value="${nap.start}" style="width:78px;flex:0 0 78px;margin-right:4px;">
-        <span style="font-size:11px;color:var(--text-tertiary);">to</span>
-        <input type="time" data-sch-field="nap-end" data-sch-idx="${i}" value="${nap.end}" style="width:78px;flex:0 0 78px;margin-left:4px;">
-        <button class="delete-btn" data-sch-del="nap" data-sch-idx="${i}">×</button>
-      </div>
-    `;
-  });
-  // Slumber
-  list.innerHTML += `
-    <div class="schedule-row">
-      <span class="ico">🌙</span>
-      <span class="lbl">Slumber</span>
-      <input type="time" data-sch-field="slumber" value="${sch.slumber}">
-    </div>
-  `;
-
-  list.innerHTML += `
-    <button class="schedule-add" id="add-meal-btn">+ Add meal</button>
-    <button class="schedule-add" id="add-nap-btn">+ Add nap</button>
-  `;
-
-  // Wire up changes
-  list.querySelectorAll('input[type="time"]').forEach(inp => {
-    inp.addEventListener('change', () => {
-      const field = inp.dataset.schField;
-      const idx = parseInt(inp.dataset.schIdx);
-      if (field === 'wake') sch.wake = inp.value;
-      else if (field === 'slumber') sch.slumber = inp.value;
-      else if (field === 'meal') sch.meals[idx].time = inp.value;
-      else if (field === 'nap-start') sch.naps[idx].start = inp.value;
-      else if (field === 'nap-end') sch.naps[idx].end = inp.value;
-      saveSchedules();
-    });
-  });
-  list.querySelectorAll('.delete-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const what = btn.dataset.schDel;
-      const idx = parseInt(btn.dataset.schIdx);
-      if (what === 'meal') sch.meals.splice(idx, 1);
-      else if (what === 'nap') sch.naps.splice(idx, 1);
-      saveSchedules();
-      renderScheduleEditor();
-    });
-  });
-  document.getElementById('add-meal-btn').addEventListener('click', () => {
-    sch.meals.push({ time: '12:00', kind: 'snack' });
-    saveSchedules();
-    renderScheduleEditor();
-  });
-  document.getElementById('add-nap-btn').addEventListener('click', () => {
-    sch.naps.push({ start: '14:00', end: '16:00' });
-    saveSchedules();
-    renderScheduleEditor();
-  });
-}
-
-// ============================================================
 // Undo / Setup / Diagnostics
 // ============================================================
 function showUndo(evt) {
@@ -1944,7 +1689,6 @@ function init() {
     state.rangeTickInterval = setInterval(() => {
       if (state.tab === 'today') {
         renderRangeTiles();
-        renderPlanRow();
       }
     }, 30000);
   }
@@ -1962,9 +1706,6 @@ function init() {
 
   // Manual add (single button now, no separate covered-gap)
   document.getElementById('manual-add-btn').addEventListener('click', openManualAdd);
-
-  // Plan-row edit -> schedule editor
-  document.getElementById('plan-edit-btn').addEventListener('click', openScheduleEditor);
 
   // Modal: type buttons
   document.querySelectorAll('#type-grid-v3 .type-btn-v3').forEach(btn => {
@@ -2143,24 +1884,6 @@ function init() {
     state.calCursor = addMonths(state.calCursor, 1);
     state.calSelected = null;
     renderCalendar();
-  });
-
-  // Schedule editor profile tabs
-  document.querySelectorAll('.profile-tab').forEach(t => {
-    t.addEventListener('click', () => {
-      state.scheduleEditingProfile = t.dataset.profile;
-      renderScheduleEditor();
-    });
-  });
-  document.getElementById('schedule-cancel').addEventListener('click', () => {
-    document.getElementById('schedule-modal').classList.remove('visible');
-    if (state.tab === 'today') renderToday();
-  });
-  document.getElementById('schedule-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'schedule-modal') {
-      document.getElementById('schedule-modal').classList.remove('visible');
-      if (state.tab === 'today') renderToday();
-    }
   });
 
   // Settings

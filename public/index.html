@@ -11,7 +11,7 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="styles.css?v=10" />
+<link rel="stylesheet" href="styles.css?v=11" />
 <title>Winnie 🐶</title>
 </head>
 <body>
@@ -74,25 +74,6 @@
       </div>
       <div class="prediction-row" style="display: none;">
         <strong>Rest of today:</strong> <span id="rest-of-day">—</span>
-      </div>
-    </div>
-
-    <div class="next-up-card hidden" id="next-up"></div>
-
-    <div class="plan-row">
-      <div class="plan-row-head">
-        <span class="plan-row-title" id="plan-profile-label">WFH schedule</span>
-        <button class="plan-row-edit" id="plan-edit-btn">edit</button>
-      </div>
-      <div class="plan-track" id="plan-track"></div>
-      <div class="plan-axis">
-        <span>12a</span><span>6a</span><span>12p</span><span>6p</span><span>12a</span>
-      </div>
-      <div class="plan-legend">
-        <span class="plan-legend-item"><span class="plan-swatch nap-plan"></span>nap</span>
-        <span class="plan-legend-item"><span class="plan-swatch meal-plan"></span>meal</span>
-        <span class="plan-legend-item"><span class="plan-swatch slumber-plan"></span>sleep</span>
-        <span class="plan-legend-item"><span class="plan-swatch wake-plan"></span>wake</span>
       </div>
     </div>
 
@@ -348,25 +329,6 @@
   </div>
 </div>
 
-<!-- ===== Schedule editor ===== -->
-<div class="modal-backdrop" id="schedule-modal">
-  <div class="modal">
-    <h3>Ideal schedule</h3>
-    <p style="font-size: 12px; color: var(--text-secondary); margin-top: -8px; margin-bottom: 14px;">
-      Set your ideal day for each profile. Weekday auto-uses WFH (or Office). Weekends auto-use Weekend.
-    </p>
-    <div class="profile-tabs">
-      <button class="profile-tab active" data-profile="wfh" type="button">WFH</button>
-      <button class="profile-tab" data-profile="office" type="button">Office</button>
-      <button class="profile-tab" data-profile="weekend" type="button">Weekend</button>
-    </div>
-    <div id="schedule-list"></div>
-    <div class="modal-actions">
-      <button class="btn-primary" id="schedule-cancel" type="button">Done</button>
-    </div>
-  </div>
-</div>
-
 <!-- ===== Settings modal ===== -->
 <div class="modal-backdrop" id="settings-modal">
   <div class="modal">
@@ -402,6 +364,6 @@
   </div>
 </div>
 
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
