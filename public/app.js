@@ -1165,7 +1165,7 @@ function renderToday() {
 
   const timeline = document.getElementById('timeline');
   if (todayEvents.length === 0) {
-    timeline.innerHTML = '<div class="empty-state">No events yet. Tap a tile above to log.</div>';
+    timeline.innerHTML = '<div class="empty-state">Quiet so far today 🌙</div>';
     return;
   }
   const rows = buildTimelineRows(todayEvents);

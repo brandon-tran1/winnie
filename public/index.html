@@ -11,7 +11,10 @@
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icon-192.png" />
 <link rel="icon" type="image/png" href="icon-192.png" />
-<link rel="stylesheet" href="styles.css?v=17" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500..700&display=swap" />
+<link rel="stylesheet" href="styles.css?v=18" />
 <title>Winnie 🐶</title>
 </head>
 <body>
@@ -41,10 +44,13 @@
 
   <!-- ===== TODAY ===== -->
   <div id="tab-today" class="tab-pane app">
-    <div class="header">
-      <div>
-        <h1>🐶 Winnie</h1>
-        <button class="sync-state sync-btn" id="sync-btn" type="button" aria-label="Sync status — tap to refresh"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">starting…</span></button>
+    <div class="app-header">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">🐝</div>
+        <div class="brand-meta">
+          <div class="brand-name">Winnie</div>
+          <button class="sync-state sync-btn" id="sync-btn" type="button" aria-label="Sync status — tap to refresh"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">starting…</span></button>
+        </div>
       </div>
       <button class="icon-btn" id="settings-btn">⚙</button>
     </div>
@@ -374,6 +380,6 @@
   </div>
 </div>
 
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

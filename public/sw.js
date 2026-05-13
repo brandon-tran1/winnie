@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v17-bedtime-anomalies';
+const CACHE = 'winnie-v18-warm-refresh';
 const ASSETS = [
   './',
   './index.html',
