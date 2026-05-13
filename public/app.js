@@ -541,35 +541,118 @@ function activeSlumber() {
   return state.events.find(e => e.type === 'slumber' && !e.end_time);
 }
 
+// --- Bladder model ---
+// Sims-style fill bar driven by Winnie's last 2W of data. Capacity = median pee-gap.
+// Wake/meal events between the last pee and now add decaying bumps. Bump weights are
+// learned from history (compare gaps that followed a trigger vs ones that didn't),
+// with sparsity fallback to fixed defaults.
+const BLADDER_WINDOW_DAYS = 14;
+const TRIGGER_LOOKBACK_MS = 60 * 60 * 1000;   // pee within 60min after trigger = "triggered"
+const BUMP_DECAY_MS = 90 * 60 * 1000;          // each bump fades over 90min
+const MIN_GAP_MS = 10 * 60 * 1000;             // ignore double-logs
+const MAX_GAP_MS = 4 * 60 * 60 * 1000;         // ignore sleep-spanning gaps
+const DEFAULT_CAPACITY_MS = 90 * 60 * 1000;
+const DEFAULT_WAKE_BUMP = 0.20;
+const DEFAULT_MEAL_BUMP = 0.25;
+const MIN_LEARN_SAMPLES = 5;
+const BUMP_CLAMP_LO = 0.10;
+const BUMP_CLAMP_HI = 0.50;
+
+function _median(arr) {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function _mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; }
+
+function _wakeTimesInWindow(windowStart) {
+  return state.events
+    .filter(e => (e.type === 'nap' || e.type === 'slumber') && e.end_time && e.end_time >= windowStart)
+    .map(e => e.end_time);
+}
+function _mealTimesInWindow(windowStart) {
+  return state.events
+    .filter(e => e.type === 'meal' && e.time >= windowStart)
+    .map(e => e.time);
+}
+
+function _learnBumps(peeEvents, wakeTimes, mealTimes) {
+  // For each pee, classify the gap from the previous pee by which trigger (if any)
+  // fell within 60min before it (and after the previous pee).
+  const buckets = { none: [], wake: [], meal: [] };
+  for (let i = 1; i < peeEvents.length; i++) {
+    const gap = peeEvents[i].time - peeEvents[i - 1].time;
+    if (gap < MIN_GAP_MS || gap > MAX_GAP_MS) continue;
+    const winLo = peeEvents[i].time - TRIGGER_LOOKBACK_MS;
+    const winHi = peeEvents[i].time;
+    const after = peeEvents[i - 1].time;
+    const hadWake = wakeTimes.some(t => t > after && t >= winLo && t <= winHi);
+    const hadMeal = mealTimes.some(t => t > after && t >= winLo && t <= winHi);
+    if (hadMeal) buckets.meal.push(gap);
+    else if (hadWake) buckets.wake.push(gap);
+    else buckets.none.push(gap);
+  }
+  const baseAvg = _mean(buckets.none);
+  const clamp = v => Math.min(BUMP_CLAMP_HI, Math.max(BUMP_CLAMP_LO, v));
+  let wakeBump = DEFAULT_WAKE_BUMP;
+  let mealBump = DEFAULT_MEAL_BUMP;
+  if (baseAvg > 0 && buckets.wake.length >= MIN_LEARN_SAMPLES) {
+    wakeBump = clamp(1 - _mean(buckets.wake) / baseAvg);
+  }
+  if (baseAvg > 0 && buckets.meal.length >= MIN_LEARN_SAMPLES) {
+    mealBump = clamp(1 - _mean(buckets.meal) / baseAvg);
+  }
+  return { wakeBump, mealBump };
+}
+
+function bladderState(now = Date.now()) {
+  if (activeSlumber()) return { fill: 0, zone: 'asleep', suppressed: 'slumber' };
+
+  const windowStart = now - BLADDER_WINDOW_DAYS * 86400000;
+  const peeEvents = state.events
+    .filter(e => e.type === 'pee' && e.time >= windowStart && e.time <= now)
+    .sort((a, b) => a.time - b.time);
+
+  if (peeEvents.length < 2) return { fill: 0, zone: 'low', suppressed: 'no-data' };
+
+  const cleanGaps = [];
+  for (let i = 1; i < peeEvents.length; i++) {
+    const g = peeEvents[i].time - peeEvents[i - 1].time;
+    if (g >= MIN_GAP_MS && g <= MAX_GAP_MS) cleanGaps.push(g);
+  }
+  const capacity = cleanGaps.length >= 3 ? _median(cleanGaps) : DEFAULT_CAPACITY_MS;
+
+  const wakeTimes = _wakeTimesInWindow(windowStart);
+  const mealTimes = _mealTimesInWindow(windowStart);
+  const { wakeBump, mealBump } = _learnBumps(peeEvents, wakeTimes, mealTimes);
+
+  const lastPee = peeEvents[peeEvents.length - 1].time;
+  const baseFill = (now - lastPee) / capacity;
+
+  let bumps = 0;
+  for (const t of wakeTimes) {
+    if (t > lastPee && t <= now) {
+      bumps += wakeBump * Math.max(0, 1 - (now - t) / BUMP_DECAY_MS);
+    }
+  }
+  for (const t of mealTimes) {
+    if (t > lastPee && t <= now) {
+      bumps += mealBump * Math.max(0, 1 - (now - t) / BUMP_DECAY_MS);
+    }
+  }
+
+  const fill = Math.max(0, Math.min(1.3, baseFill + bumps));
+  let zone = 'low';
+  if (fill >= 1.0) zone = 'over';
+  else if (fill >= 0.85) zone = 'high';
+  else if (fill >= 0.5) zone = 'mid';
+  return { fill, zone, suppressed: null };
+}
+
 function predictions() {
   const now = Date.now();
-
-  // If currently in slumber, suppress predictions
-  if (activeSlumber()) {
-    return { nextPee: null, restOfDay: null, suppressed: 'slumber' };
-  }
-
-  const peeEvents = state.events.filter(e => e.type === 'pee').sort((a, b) => a.time - b.time);
-  let nextPee = null;
-  if (peeEvents.length >= 2) {
-    const recent = peeEvents.slice(-8);
-    const gaps = [];
-    for (let i = 1; i < recent.length; i++) {
-      const gap = recent[i].time - recent[i-1].time;
-      if (gap < 4 * 3600 * 1000) gaps.push(gap);
-    }
-    if (gaps.length > 0) {
-      const avgGap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-      const lastPee = peeEvents[peeEvents.length - 1].time;
-      const sinceLast = now - lastPee;
-      const minsToNext = Math.round((lastPee + avgGap - now) / 60000);
-      const avgMins = Math.round(avgGap / 60000);
-      let risk = null;
-      if (sinceLast > avgGap * 1.2) risk = 'high';
-      else if (sinceLast > avgGap * 0.85) risk = 'med';
-      nextPee = { minsToNext, avgMins, risk, sinceLast };
-    }
-  }
+  if (activeSlumber()) return { restOfDay: null, suppressed: 'slumber' };
 
   // Rest of day
   let restOfDay = null;
@@ -602,7 +685,7 @@ function predictions() {
     }
   }
 
-  return { nextPee, restOfDay, suppressed: null };
+  return { restOfDay, suppressed: null };
 }
 
 // ============================================================
@@ -714,23 +797,30 @@ function renderToday() {
     }
   }
 
-  // Predictions
-  const { nextPee, restOfDay, suppressed } = predictions();
-  const nextEl = document.getElementById('next-pee');
-  if (suppressed === 'slumber') {
-    nextEl.textContent = 'paused (sleeping)';
-  } else if (!nextPee) {
-    nextEl.textContent = lastPee ? 'gathering data…' : 'no pees logged yet';
-  } else {
-    const m = Math.max(0, nextPee.minsToNext);
-    if (nextPee.risk === 'high') {
-      nextEl.innerHTML = `overdue (avg ${nextPee.avgMins}m gap) <span class="risk-pill high">⚠ go now</span>`;
-    } else if (nextPee.risk === 'med') {
-      nextEl.innerHTML = `~${m}m <span class="risk-pill med">heads up</span>`;
+  // Bladder bar (Sims-style)
+  const bladder = bladderState(now);
+  const bladderRow = document.getElementById('bladder-row');
+  const bladderFill = document.getElementById('bladder-fill');
+  const bladderStatus = document.getElementById('bladder-status');
+  if (bladderRow && bladderFill && bladderStatus) {
+    bladderRow.classList.toggle('asleep', bladder.suppressed === 'slumber');
+    if (bladder.suppressed === 'slumber') {
+      bladderFill.style.width = '100%';
+      bladderFill.className = 'bladder-fill';
+      bladderStatus.textContent = 'sleeping';
+    } else if (bladder.suppressed === 'no-data') {
+      bladderFill.style.width = '0%';
+      bladderFill.className = 'bladder-fill';
+      bladderStatus.textContent = 'gathering data';
     } else {
-      nextEl.textContent = '~' + m + 'm';
+      bladderFill.style.width = Math.min(100, bladder.fill * 100) + '%';
+      bladderFill.className = 'bladder-fill zone-' + bladder.zone;
+      const labels = { low: 'fresh', mid: 'filling', high: 'heads up', over: 'full' };
+      bladderStatus.textContent = labels[bladder.zone];
     }
   }
+
+  const { restOfDay, suppressed } = predictions();
 
   const rodEl = document.getElementById('rest-of-day');
   if (rodEl) {

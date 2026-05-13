@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v6-sync-perf';
+const CACHE = 'winnie-v7-bladder-bar';
 const ASSETS = [
   './',
   './index.html',

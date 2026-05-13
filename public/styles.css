@@ -221,6 +221,39 @@ body {
 }
 .prediction-row strong { color: var(--text); font-weight: 500; }
 .prediction-row + .prediction-row { padding-top: 8px; margin-top: 8px; }
+
+/* ===== BLADDER BAR ===== */
+.bladder-row {
+  margin-top: 10px; padding-top: 10px;
+  border-top: 0.5px solid var(--border);
+}
+.bladder-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 6px;
+}
+.bladder-label { font-size: 13px; color: var(--text); font-weight: 500; }
+.bladder-status { font-size: 12px; color: var(--text-secondary); }
+.bladder-bar {
+  height: 10px; border-radius: 5px;
+  background: var(--surface);
+  overflow: hidden;
+  border: 0.5px solid var(--border);
+}
+.bladder-fill {
+  height: 100%; width: 0%;
+  border-radius: 5px;
+  background: #6ec98f;
+  transition: width 0.4s ease, background 0.4s ease;
+}
+.bladder-fill.zone-low  { background: #6ec98f; }
+.bladder-fill.zone-mid  { background: #e8c46a; }
+.bladder-fill.zone-high { background: #e89e54; }
+.bladder-fill.zone-over { background: #e26b6b; animation: bladder-pulse 1.2s ease-in-out infinite; }
+.bladder-row.asleep .bladder-fill { background: var(--text-tertiary); opacity: 0.4; animation: none; }
+@keyframes bladder-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
 .next-up-card {
   background: var(--ghost-bg);
   border: 1px solid var(--ghost);
