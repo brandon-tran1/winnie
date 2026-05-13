@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v7-bladder-bar';
+const CACHE = 'winnie-v8-motives';
 const ASSETS = [
   './',
   './index.html',

@@ -541,22 +541,48 @@ function activeSlumber() {
   return state.events.find(e => e.type === 'slumber' && !e.end_time);
 }
 
-// --- Bladder model ---
-// Sims-style fill bar driven by Winnie's last 2W of data. Capacity = median pee-gap.
-// Wake/meal events between the last pee and now add decaying bumps. Bump weights are
-// learned from history (compare gaps that followed a trigger vs ones that didn't),
-// with sparsity fallback to fixed defaults.
-const BLADDER_WINDOW_DAYS = 14;
-const TRIGGER_LOOKBACK_MS = 60 * 60 * 1000;   // pee within 60min after trigger = "triggered"
-const BUMP_DECAY_MS = 90 * 60 * 1000;          // each bump fades over 90min
-const MIN_GAP_MS = 10 * 60 * 1000;             // ignore double-logs
-const MAX_GAP_MS = 4 * 60 * 60 * 1000;         // ignore sleep-spanning gaps
-const DEFAULT_CAPACITY_MS = 90 * 60 * 1000;
+// --- Motive bars (Sims-style) ---
+// Each bar is a "level" in [0, 1]; 1 = satisfied (green), 0 = empty (urgent).
+// Level can dip slightly negative for "overdue" (urgent zone). Models are driven by
+// Winnie's last 14d of events with a sparsity fallback to fixed defaults.
+const MOTIVE_WINDOW_DAYS = 14;
+const MIN_LEARN_SAMPLES = 5;
+
+// Bladder
+const TRIGGER_LOOKBACK_MS = 60 * 60 * 1000;
+const BUMP_DECAY_MS = 90 * 60 * 1000;
+const PEE_MIN_GAP_MS = 10 * 60 * 1000;
+const PEE_MAX_GAP_MS = 4 * 60 * 60 * 1000;
+const BLADDER_DEFAULT_CAPACITY_MS = 90 * 60 * 1000;
 const DEFAULT_WAKE_BUMP = 0.20;
 const DEFAULT_MEAL_BUMP = 0.25;
-const MIN_LEARN_SAMPLES = 5;
 const BUMP_CLAMP_LO = 0.10;
 const BUMP_CLAMP_HI = 0.50;
+
+// Poop (gaps are long & noisy — no upper-end filter beyond a day, no trigger bumps for v1)
+const POOP_MIN_GAP_MS = 30 * 60 * 1000;
+const POOP_MAX_GAP_MS = 24 * 60 * 60 * 1000;
+const POOP_DEFAULT_CAPACITY_MS = 8 * 60 * 60 * 1000;
+
+// Hunger (filter overnight gaps so the slumber gap doesn't dominate the median)
+const MEAL_MIN_GAP_MS = 30 * 60 * 1000;
+const MEAL_MAX_GAP_MS = 12 * 60 * 60 * 1000;
+const HUNGER_DEFAULT_CAPACITY_MS = 6 * 60 * 60 * 1000;
+
+// Energy
+const WAKE_MIN_MS = 30 * 60 * 1000;
+const WAKE_MAX_MS = 6 * 60 * 60 * 1000;
+const SLEEP_MIN_MS = 5 * 60 * 1000;
+const ENERGY_DEFAULT_WAKE_CAPACITY_MS = 2.5 * 60 * 60 * 1000;
+const ENERGY_DEFAULT_SLEEP_MS = 60 * 60 * 1000;
+
+// Zones: high level = satisfied/green, low level = urgent/red.
+function motiveZone(level) {
+  if (level < 0) return 'urgent';
+  if (level < 0.20) return 'low';
+  if (level < 0.50) return 'mid';
+  return 'ok';
+}
 
 function _median(arr) {
   if (!arr.length) return 0;
@@ -583,7 +609,7 @@ function _learnBumps(peeEvents, wakeTimes, mealTimes) {
   const buckets = { none: [], wake: [], meal: [] };
   for (let i = 1; i < peeEvents.length; i++) {
     const gap = peeEvents[i].time - peeEvents[i - 1].time;
-    if (gap < MIN_GAP_MS || gap > MAX_GAP_MS) continue;
+    if (gap < PEE_MIN_GAP_MS || gap > PEE_MAX_GAP_MS) continue;
     const winLo = peeEvents[i].time - TRIGGER_LOOKBACK_MS;
     const winHi = peeEvents[i].time;
     const after = peeEvents[i - 1].time;
@@ -606,22 +632,46 @@ function _learnBumps(peeEvents, wakeTimes, mealTimes) {
   return { wakeBump, mealBump };
 }
 
-function bladderState(now = Date.now()) {
-  if (activeSlumber()) return { fill: 0, zone: 'asleep', suppressed: 'slumber' };
+// Generic drain model: level = 1 - (time_since_last_event / capacity). Caller computes
+// capacity from history with a sparsity fallback. Slumber pauses the bar (UX choice).
+function _drainMotive({ now, eventType, minGap, maxGap, defaultCapacity }) {
+  if (activeSlumber()) return { level: 1, zone: 'ok', suppressed: 'slumber' };
 
-  const windowStart = now - BLADDER_WINDOW_DAYS * 86400000;
+  const windowStart = now - MOTIVE_WINDOW_DAYS * 86400000;
+  const events = state.events
+    .filter(e => e.type === eventType && e.time >= windowStart && e.time <= now)
+    .sort((a, b) => a.time - b.time);
+
+  if (events.length < 1) return { level: 1, zone: 'ok', suppressed: 'no-data' };
+
+  const gaps = [];
+  for (let i = 1; i < events.length; i++) {
+    const g = events[i].time - events[i - 1].time;
+    if (g >= minGap && g <= maxGap) gaps.push(g);
+  }
+  const capacity = gaps.length >= 3 ? _median(gaps) : defaultCapacity;
+  const lastTime = events[events.length - 1].time;
+  const fill = (now - lastTime) / capacity;
+  const level = Math.max(-0.3, 1 - fill);
+  return { level, zone: motiveZone(level), suppressed: null };
+}
+
+function bladderState(now = Date.now()) {
+  if (activeSlumber()) return { level: 1, zone: 'ok', suppressed: 'slumber' };
+
+  const windowStart = now - MOTIVE_WINDOW_DAYS * 86400000;
   const peeEvents = state.events
     .filter(e => e.type === 'pee' && e.time >= windowStart && e.time <= now)
     .sort((a, b) => a.time - b.time);
 
-  if (peeEvents.length < 2) return { fill: 0, zone: 'low', suppressed: 'no-data' };
+  if (peeEvents.length < 2) return { level: 1, zone: 'ok', suppressed: 'no-data' };
 
   const cleanGaps = [];
   for (let i = 1; i < peeEvents.length; i++) {
     const g = peeEvents[i].time - peeEvents[i - 1].time;
-    if (g >= MIN_GAP_MS && g <= MAX_GAP_MS) cleanGaps.push(g);
+    if (g >= PEE_MIN_GAP_MS && g <= PEE_MAX_GAP_MS) cleanGaps.push(g);
   }
-  const capacity = cleanGaps.length >= 3 ? _median(cleanGaps) : DEFAULT_CAPACITY_MS;
+  const capacity = cleanGaps.length >= 3 ? _median(cleanGaps) : BLADDER_DEFAULT_CAPACITY_MS;
 
   const wakeTimes = _wakeTimesInWindow(windowStart);
   const mealTimes = _mealTimesInWindow(windowStart);
@@ -642,12 +692,100 @@ function bladderState(now = Date.now()) {
     }
   }
 
-  const fill = Math.max(0, Math.min(1.3, baseFill + bumps));
-  let zone = 'low';
-  if (fill >= 1.0) zone = 'over';
-  else if (fill >= 0.85) zone = 'high';
-  else if (fill >= 0.5) zone = 'mid';
-  return { fill, zone, suppressed: null };
+  const level = Math.max(-0.3, 1 - (baseFill + bumps));
+  return { level, zone: motiveZone(level), suppressed: null };
+}
+
+function poopState(now = Date.now()) {
+  return _drainMotive({
+    now, eventType: 'poop',
+    minGap: POOP_MIN_GAP_MS, maxGap: POOP_MAX_GAP_MS,
+    defaultCapacity: POOP_DEFAULT_CAPACITY_MS,
+  });
+}
+
+function hungerState(now = Date.now()) {
+  return _drainMotive({
+    now, eventType: 'meal',
+    minGap: MEAL_MIN_GAP_MS, maxGap: MEAL_MAX_GAP_MS,
+    defaultCapacity: HUNGER_DEFAULT_CAPACITY_MS,
+  });
+}
+
+// Energy is unique: drains while awake, refills during active nap/slumber.
+function energyState(now = Date.now()) {
+  const windowStart = now - MOTIVE_WINDOW_DAYS * 86400000;
+  const sleeps = state.events
+    .filter(e => (e.type === 'nap' || e.type === 'slumber') && e.time >= windowStart)
+    .sort((a, b) => a.time - b.time);
+
+  // Typical sleep length (median of completed sleeps in window)
+  const sleepDurations = sleeps
+    .filter(e => e.end_time && e.end_time - e.time >= SLEEP_MIN_MS)
+    .map(e => e.end_time - e.time);
+  const typicalSleepMs = sleepDurations.length >= 3
+    ? _median(sleepDurations) : ENERGY_DEFAULT_SLEEP_MS;
+
+  // Typical wake-window length
+  const wakeWindows = [];
+  for (let i = 0; i < sleeps.length - 1; i++) {
+    if (!sleeps[i].end_time) continue;
+    const w = sleeps[i + 1].time - sleeps[i].end_time;
+    if (w >= WAKE_MIN_MS && w <= WAKE_MAX_MS) wakeWindows.push(w);
+  }
+  const wakeCapacity = wakeWindows.length >= 3 ? _median(wakeWindows) : ENERGY_DEFAULT_WAKE_CAPACITY_MS;
+
+  const activeSleep = sleeps.find(e => !e.end_time);
+  if (activeSleep) {
+    // Estimate level at sleep start from the preceding wake window, then linearly
+    // refill toward 1.0 over typicalSleepMs.
+    const priorEnd = sleeps
+      .filter(e => e.end_time && e.end_time <= activeSleep.time)
+      .map(e => e.end_time)
+      .sort((a, b) => b - a)[0];
+    let levelAtStart = 1;
+    if (priorEnd) {
+      const wakeBefore = activeSleep.time - priorEnd;
+      levelAtStart = Math.max(-0.3, 1 - wakeBefore / wakeCapacity);
+    }
+    const sleepDur = now - activeSleep.time;
+    const refill = Math.min(1, sleepDur / typicalSleepMs);
+    const level = Math.min(1, levelAtStart + (1 - levelAtStart) * refill);
+    return { level, zone: motiveZone(level), suppressed: null };
+  }
+
+  const sleepEnds = sleeps.filter(e => e.end_time).map(e => e.end_time);
+  if (sleepEnds.length === 0) return { level: 1, zone: 'ok', suppressed: 'no-data' };
+  const lastSleepEnd = Math.max(...sleepEnds);
+  const level = Math.max(-0.3, 1 - (now - lastSleepEnd) / wakeCapacity);
+  return { level, zone: motiveZone(level), suppressed: null };
+}
+
+function renderMotive(rowId, st, statusLabels) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  const fillEl = row.querySelector('.motive-fill');
+  const statusEl = row.querySelector('.motive-status');
+  if (!fillEl || !statusEl) return;
+
+  row.classList.toggle('suppressed', !!st.suppressed);
+
+  if (st.suppressed === 'slumber') {
+    fillEl.style.width = '100%';
+    fillEl.className = 'motive-fill';
+    statusEl.textContent = 'sleeping';
+    return;
+  }
+  if (st.suppressed === 'no-data') {
+    fillEl.style.width = '100%';
+    fillEl.className = 'motive-fill';
+    statusEl.textContent = 'gathering data';
+    return;
+  }
+  const pct = Math.max(0, Math.min(1, st.level)) * 100;
+  fillEl.style.width = pct + '%';
+  fillEl.className = 'motive-fill zone-' + st.zone;
+  statusEl.textContent = statusLabels[st.zone] || '';
 }
 
 function predictions() {
@@ -797,28 +935,19 @@ function renderToday() {
     }
   }
 
-  // Bladder bar (Sims-style)
-  const bladder = bladderState(now);
-  const bladderRow = document.getElementById('bladder-row');
-  const bladderFill = document.getElementById('bladder-fill');
-  const bladderStatus = document.getElementById('bladder-status');
-  if (bladderRow && bladderFill && bladderStatus) {
-    bladderRow.classList.toggle('asleep', bladder.suppressed === 'slumber');
-    if (bladder.suppressed === 'slumber') {
-      bladderFill.style.width = '100%';
-      bladderFill.className = 'bladder-fill';
-      bladderStatus.textContent = 'sleeping';
-    } else if (bladder.suppressed === 'no-data') {
-      bladderFill.style.width = '0%';
-      bladderFill.className = 'bladder-fill';
-      bladderStatus.textContent = 'gathering data';
-    } else {
-      bladderFill.style.width = Math.min(100, bladder.fill * 100) + '%';
-      bladderFill.className = 'bladder-fill zone-' + bladder.zone;
-      const labels = { low: 'fresh', mid: 'filling', high: 'heads up', over: 'full' };
-      bladderStatus.textContent = labels[bladder.zone];
-    }
-  }
+  // Motive bars (Sims-style)
+  renderMotive('motive-bladder', bladderState(now), {
+    ok: 'comfy', mid: 'filling', low: 'heads up', urgent: 'needs to go',
+  });
+  renderMotive('motive-poop', poopState(now), {
+    ok: 'ok', mid: 'due-ish', low: 'due', urgent: 'overdue',
+  });
+  renderMotive('motive-energy', energyState(now), {
+    ok: 'energized', mid: 'winding down', low: 'sleepy', urgent: 'overtired',
+  });
+  renderMotive('motive-hunger', hungerState(now), {
+    ok: 'fed', mid: 'snacky', low: 'hungry', urgent: 'starving',
+  });
 
   const { restOfDay, suppressed } = predictions();
 

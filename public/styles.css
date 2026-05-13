@@ -222,35 +222,40 @@ body {
 .prediction-row strong { color: var(--text); font-weight: 500; }
 .prediction-row + .prediction-row { padding-top: 8px; margin-top: 8px; }
 
-/* ===== BLADDER BAR ===== */
-.bladder-row {
+/* ===== MOTIVE BARS (Sims-style) ===== */
+.motives {
   margin-top: 10px; padding-top: 10px;
   border-top: 0.5px solid var(--border);
+  display: flex; flex-direction: column; gap: 6px;
 }
-.bladder-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: 6px;
+.motive-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 72px;
+  gap: 10px;
+  align-items: center;
 }
-.bladder-label { font-size: 13px; color: var(--text); font-weight: 500; }
-.bladder-status { font-size: 12px; color: var(--text-secondary); }
-.bladder-bar {
-  height: 10px; border-radius: 5px;
+.motive-label { font-size: 12px; color: var(--text); font-weight: 500; }
+.motive-status { font-size: 11px; color: var(--text-secondary); text-align: right; }
+.motive-bar {
+  height: 8px; border-radius: 4px;
   background: var(--surface);
   overflow: hidden;
   border: 0.5px solid var(--border);
 }
-.bladder-fill {
-  height: 100%; width: 0%;
-  border-radius: 5px;
+.motive-fill {
+  height: 100%; width: 100%;
+  border-radius: 4px;
   background: #6ec98f;
   transition: width 0.4s ease, background 0.4s ease;
 }
-.bladder-fill.zone-low  { background: #6ec98f; }
-.bladder-fill.zone-mid  { background: #e8c46a; }
-.bladder-fill.zone-high { background: #e89e54; }
-.bladder-fill.zone-over { background: #e26b6b; animation: bladder-pulse 1.2s ease-in-out infinite; }
-.bladder-row.asleep .bladder-fill { background: var(--text-tertiary); opacity: 0.4; animation: none; }
-@keyframes bladder-pulse {
+.motive-fill.zone-ok     { background: #6ec98f; }
+.motive-fill.zone-mid    { background: #e8c46a; }
+.motive-fill.zone-low    { background: #e89e54; }
+.motive-fill.zone-urgent { background: #e26b6b; animation: motive-pulse 1.2s ease-in-out infinite; }
+.motive-row.suppressed .motive-fill {
+  background: var(--text-tertiary); opacity: 0.4; animation: none;
+}
+@keyframes motive-pulse {
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.55; }
 }
