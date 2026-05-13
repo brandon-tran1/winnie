@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500..700&display=swap" />
-<link rel="stylesheet" href="styles.css?v=18" />
+<link rel="stylesheet" href="styles.css?v=19" />
 <title>Winnie 🐶</title>
 </head>
 <body>
@@ -87,37 +87,30 @@
       <button class="undo-btn" id="undo-btn">Undo</button>
     </div>
 
-    <div class="section-label">Point events</div>
-    <div class="point-grid">
-      <button class="point-tile" data-type="pee" type="button">
+    <div class="log-grid">
+      <button class="log-tile" data-type="pee" type="button">
         <span class="icon">🟨</span>
         <div class="label">Pee</div>
         <span class="tag-pill" data-type="pee">+ tag</span>
       </button>
-      <button class="point-tile" data-type="poop" type="button">
+      <button class="log-tile" data-type="poop" type="button">
         <span class="icon">💩</span>
         <div class="label">Poop</div>
         <span class="tag-pill" data-type="poop">+ tag</span>
       </button>
-      <button class="point-tile" data-type="meal" type="button">
+      <button class="log-tile" data-type="meal" type="button">
         <span class="icon">🍽</span>
         <div class="label">Meal</div>
         <span class="tag-pill" data-type="meal">+ tag</span>
       </button>
-    </div>
-
-    <div class="section-label">Range events</div>
-    <div class="range-grid">
-      <button class="range-tile" id="range-sleep" data-range-type="sleep" type="button">
+      <button class="log-tile" id="range-sleep" data-range-type="sleep" type="button">
         <span class="icon">💤</span>
         <div class="label">Start sleep</div>
         <div class="sub">tap to begin</div>
       </button>
     </div>
 
-    <div class="secondary-actions">
-      <button class="secondary-btn" id="manual-add-btn">+ Manual add (any event type)</button>
-    </div>
+    <button class="more-events-btn" id="manual-add-btn" type="button">+ More events</button>
 
     <div class="section-header">
       <span>Today</span>
@@ -380,6 +373,6 @@
   </div>
 </div>
 
-<script src="app.js?v=18"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>

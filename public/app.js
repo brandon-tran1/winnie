@@ -1954,8 +1954,9 @@ function init() {
     btn.addEventListener('click', () => setTab(btn.dataset.tab));
   });
 
-  // Point tile clicks
-  document.querySelectorAll('.point-tile').forEach(tile => {
+  // Log-tile clicks (point events — pee/poop/meal). Sleep is handled by the
+  // range-type handler below.
+  document.querySelectorAll('.log-tile[data-type]').forEach(tile => {
     tile.addEventListener('click', (e) => {
       if (e.target.closest('.tag-pill')) return;
       const type = tile.dataset.type;

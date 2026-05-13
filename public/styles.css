@@ -304,38 +304,46 @@ body {
   cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 500;
 }
 
-/* ===== LOG TILES ===== */
+/* ===== LOG TILES (unified point + range grid) ===== */
 .section-label {
   font-size: 11px; color: var(--text-tertiary);
   text-transform: uppercase; letter-spacing: 0.08em;
   margin: 0 0 8px; font-weight: 600;
   display: flex; justify-content: space-between; align-items: baseline;
 }
-.point-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 8px; margin-bottom: 14px;
+.log-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  gap: 10px; margin-bottom: 10px;
 }
-.point-tile {
+.log-tile {
   position: relative;
   background: var(--surface);
   border: 0.5px solid var(--border);
-  border-radius: 16px;
-  padding: 16px 6px 12px;
+  border-radius: 18px;
+  padding: 18px 8px 14px;
   cursor: pointer;
   text-align: center;
   font-family: inherit;
   color: var(--text);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
   transition: transform 0.08s ease, background 0.15s ease, box-shadow 0.15s ease;
   user-select: none;
   box-shadow: 0 1px 2px rgba(58, 44, 26, 0.04);
 }
-.point-tile:active {
-  transform: scale(0.95);
+.log-tile:active {
+  transform: scale(0.96);
   background: var(--surface-2);
   box-shadow: 0 0 0 rgba(0,0,0,0);
 }
-.point-tile .icon { font-size: 30px; line-height: 1; }
-.point-tile .label { font-size: 13px; font-weight: 500; margin-top: 6px; letter-spacing: 0.01em; }
+.log-tile .icon { font-size: 32px; line-height: 1; }
+.log-tile .label { font-size: 14px; font-weight: 500; margin-top: 4px; letter-spacing: 0.01em; }
+.log-tile .sub { font-size: 11px; color: var(--text-secondary); }
+.log-tile.active {
+  background: var(--success-bg);
+  border: 1.5px solid var(--success-strong);
+  padding: 17px 7px 13px;
+}
+.log-tile.active .label, .log-tile.active .sub { color: var(--success-text); }
 .tag-pill {
   display: inline-flex; align-items: center;
   font-size: 10px; font-weight: 500;
@@ -347,45 +355,18 @@ body {
 }
 .tag-pill:active { transform: scale(0.94); }
 
-.range-grid {
-  display: grid; grid-template-columns: 1fr;
-  gap: 8px; margin-bottom: 14px;
-}
-.range-tile {
-  background: var(--surface);
-  border: 0.5px solid var(--border);
-  border-radius: 16px;
-  padding: 14px 10px;
-  cursor: pointer;
-  display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 10px;
-  font-family: inherit; color: var(--text);
-  text-align: center;
-  transition: transform 0.08s ease, background 0.15s ease;
-  box-shadow: 0 1px 2px rgba(58, 44, 26, 0.04);
-}
-.range-tile:active { transform: scale(0.97); background: var(--surface-2); box-shadow: 0 0 0 rgba(0,0,0,0); }
-.range-tile .icon { font-size: 22px; line-height: 1; }
-.range-tile .label { font-size: 14px; font-weight: 500; }
-.range-tile .sub { font-size: 11px; color: var(--text-secondary); }
-.range-tile.active {
-  background: var(--success-bg);
-  border: 1.5px solid var(--success-strong);
-  padding: 11px 9px;
-}
-.range-tile.active .label, .range-tile.active .sub { color: var(--success-text); }
-
-/* ===== SECONDARY ACTIONS ===== */
-.secondary-actions { display: flex; gap: 8px; margin: 0 0 16px; }
-.secondary-btn {
-  flex: 1; font-family: inherit;
+.more-events-btn {
+  display: block; width: 100%;
+  font-family: inherit; font-size: 13px;
   background: transparent;
-  border: 0.5px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  font-size: 12px; cursor: pointer;
-  color: var(--text-secondary);
+  border: 0.5px dashed var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  color: var(--text-secondary); cursor: pointer;
+  margin-bottom: 18px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.secondary-btn:active { background: var(--surface-2); color: var(--text); }
+.more-events-btn:active { background: var(--surface-2); color: var(--text); transform: scale(0.99); }
 
 /* ===== TIMELINE ===== */
 .section-header {

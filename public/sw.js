@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v18-warm-refresh';
+const CACHE = 'winnie-v19-log-grid-consolidation';
 const ASSETS = [
   './',
   './index.html',
