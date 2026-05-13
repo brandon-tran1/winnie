@@ -224,13 +224,12 @@ body {
 
 /* ===== MOTIVE BARS (Sims-style) ===== */
 .motives {
-  margin-top: 10px; padding-top: 10px;
-  border-top: 0.5px solid var(--border);
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 8px;
 }
+.motives + .prediction-row { margin-top: 12px; }
 .motive-row {
   display: grid;
-  grid-template-columns: 56px 1fr 72px;
+  grid-template-columns: 56px 1fr 108px;
   gap: 10px;
   align-items: center;
 }

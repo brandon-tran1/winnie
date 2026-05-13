@@ -761,7 +761,7 @@ function energyState(now = Date.now()) {
   return { level, zone: motiveZone(level), suppressed: null };
 }
 
-function renderMotive(rowId, st, statusLabels) {
+function renderMotive(rowId, st, textFn) {
   const row = document.getElementById(rowId);
   if (!row) return;
   const fillEl = row.querySelector('.motive-fill');
@@ -770,22 +770,38 @@ function renderMotive(rowId, st, statusLabels) {
 
   row.classList.toggle('suppressed', !!st.suppressed);
 
-  if (st.suppressed === 'slumber') {
+  if (st.suppressed) {
     fillEl.style.width = '100%';
     fillEl.className = 'motive-fill';
-    statusEl.textContent = 'sleeping';
-    return;
+  } else {
+    const pct = Math.max(0, Math.min(1, st.level)) * 100;
+    fillEl.style.width = pct + '%';
+    fillEl.className = 'motive-fill zone-' + st.zone;
   }
-  if (st.suppressed === 'no-data') {
-    fillEl.style.width = '100%';
-    fillEl.className = 'motive-fill';
-    statusEl.textContent = 'gathering data';
-    return;
+  statusEl.textContent = textFn(st);
+}
+
+// Right-column text for the drain motives (bladder/poop/hunger): time since last
+// matching event, with a "· sleeping" suffix when slumber has paused the bar.
+function drainMotiveText(eventType, st, now) {
+  const evt = state.events.find(e => e.type === eventType);
+  if (!evt) return 'no data';
+  const t = formatDuration(now - evt.time);
+  return st.suppressed === 'slumber' ? `${t} · sleeping` : t;
+}
+
+// Right-column text for the energy motive: phase-aware (awake / asleep / napping).
+function energyMotiveText(now) {
+  const activeSleep = state.events.find(e => (e.type === 'nap' || e.type === 'slumber') && !e.end_time);
+  if (activeSleep) {
+    const dur = formatDuration(now - activeSleep.time);
+    return activeSleep.type === 'slumber' ? `${dur} asleep` : `${dur} napping`;
   }
-  const pct = Math.max(0, Math.min(1, st.level)) * 100;
-  fillEl.style.width = pct + '%';
-  fillEl.className = 'motive-fill zone-' + st.zone;
-  statusEl.textContent = statusLabels[st.zone] || '';
+  const sleepEnds = state.events
+    .filter(e => (e.type === 'slumber' || e.type === 'nap') && e.end_time)
+    .map(e => e.end_time);
+  if (!sleepEnds.length) return 'no data';
+  return `${formatDuration(now - Math.max(...sleepEnds))} awake`;
 }
 
 function predictions() {
@@ -907,47 +923,12 @@ function setTab(tab) {
 // ============================================================
 function renderToday() {
   const now = Date.now();
-  const lastPee = state.events.find(e => e.type === 'pee');
-  const lastPoop = state.events.find(e => e.type === 'poop');
-  document.getElementById('last-pee').textContent = lastPee ? timeAgo(lastPee.time) : '—';
-  document.getElementById('last-poop').textContent = lastPoop ? timeAgo(lastPoop.time) : '—';
 
-  // Wake window: time since last slumber.end (or last nap.end if no slumber today)
-  const lastSlumber = state.events.find(e => e.type === 'slumber' && e.end_time);
-  const activeNap = findActiveRange('nap');
-  const activeSlumberEvt = activeSlumber();
-
-  const wakeWindowEl = document.getElementById('wake-window');
-  if (activeSlumberEvt) {
-    wakeWindowEl.textContent = 'sleeping (' + formatDuration(now - activeSlumberEvt.time) + ')';
-  } else if (activeNap) {
-    wakeWindowEl.textContent = 'napping (' + formatDuration(now - activeNap.time) + ')';
-  } else {
-    // Find the most recent end of any sleep range
-    const sleepEnds = state.events
-      .filter(e => (e.type === 'slumber' || e.type === 'nap') && e.end_time)
-      .map(e => e.end_time);
-    if (sleepEnds.length > 0) {
-      const lastWake = Math.max(...sleepEnds);
-      wakeWindowEl.textContent = formatDuration(now - lastWake);
-    } else {
-      wakeWindowEl.textContent = '—';
-    }
-  }
-
-  // Motive bars (Sims-style)
-  renderMotive('motive-bladder', bladderState(now), {
-    ok: 'comfy', mid: 'filling', low: 'heads up', urgent: 'needs to go',
-  });
-  renderMotive('motive-poop', poopState(now), {
-    ok: 'ok', mid: 'due-ish', low: 'due', urgent: 'overdue',
-  });
-  renderMotive('motive-energy', energyState(now), {
-    ok: 'energized', mid: 'winding down', low: 'sleepy', urgent: 'overtired',
-  });
-  renderMotive('motive-hunger', hungerState(now), {
-    ok: 'fed', mid: 'snacky', low: 'hungry', urgent: 'starving',
-  });
+  // Motive bars (Sims-style) — right column shows time-since-last; color carries urgency.
+  renderMotive('motive-bladder', bladderState(now), st => drainMotiveText('pee', st, now));
+  renderMotive('motive-poop',    poopState(now),    st => drainMotiveText('poop', st, now));
+  renderMotive('motive-energy',  energyState(now),  ()  => energyMotiveText(now));
+  renderMotive('motive-hunger',  hungerState(now),  st => drainMotiveText('meal', st, now));
 
   const { restOfDay, suppressed } = predictions();
 

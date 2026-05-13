@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v9-motives-cachefix';
+const CACHE = 'winnie-v10-collapsed-status';
 const ASSETS = [
   './',
   './index.html',
