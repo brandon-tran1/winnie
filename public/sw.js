@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v15-zone-settings';
+const CACHE = 'winnie-v16-edit-sync-coords';
 const ASSETS = [
   './',
   './index.html',

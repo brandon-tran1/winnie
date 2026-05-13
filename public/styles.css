@@ -720,8 +720,9 @@ textarea { min-height: 60px; resize: vertical; }
 }
 .zone-name-input:focus { outline: 1px solid var(--info-strong); border-radius: 4px; padding-left: 4px; }
 .zone-meta {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 6px;
   font-size: 11px; color: var(--text-tertiary);
+  flex-wrap: wrap;
 }
 .zone-radius-input {
   width: 50px; font-size: 11px; padding: 1px 4px;
@@ -729,7 +730,13 @@ textarea { min-height: 60px; resize: vertical; }
   background: var(--surface); font-family: inherit;
   color: var(--text);
 }
-.zone-coords { font-family: ui-monospace, monospace; font-size: 10px; }
+.zone-coord-input {
+  width: 88px; font-size: 10px;
+  padding: 1px 4px;
+  border: 0.5px solid var(--border); border-radius: 4px;
+  background: var(--surface); font-family: ui-monospace, monospace;
+  color: var(--text);
+}
 .zone-action {
   background: transparent; border: none;
   font-size: 16px; padding: 4px 6px;

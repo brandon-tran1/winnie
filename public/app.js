@@ -205,8 +205,9 @@ function renderZonesList() {
       <div class="zone-info">
         <input class="zone-name-input" type="text" value="${escapeHtml(z.name)}" data-zone-id="${z.id}" data-field="name" />
         <div class="zone-meta">
-          <input class="zone-radius-input" type="number" min="20" max="2000" step="10" value="${z.radius}" data-zone-id="${z.id}" data-field="radius" />m
-          <span class="zone-coords">${z.lat.toFixed(4)}, ${z.lng.toFixed(4)}</span>
+          <input class="zone-radius-input" type="number" min="20" max="2000" step="10" value="${z.radius}" data-zone-id="${z.id}" data-field="radius" title="radius (m)" />m
+          <input class="zone-coord-input" type="number" step="0.000001" inputmode="decimal" value="${z.lat.toFixed(7)}" data-zone-id="${z.id}" data-field="lat" title="latitude" />
+          <input class="zone-coord-input" type="number" step="0.000001" inputmode="decimal" value="${z.lng.toFixed(7)}" data-zone-id="${z.id}" data-field="lng" title="longitude" />
         </div>
       </div>
       <button class="zone-action" data-action="recapture" data-zone-id="${z.id}" type="button" title="Update to current location">📍</button>
@@ -224,6 +225,14 @@ function renderZonesList() {
       } else if (inp.dataset.field === 'radius') {
         zone.radius = Math.max(20, Math.min(2000, parseInt(inp.value, 10) || 100));
         inp.value = zone.radius;
+      } else if (inp.dataset.field === 'lat') {
+        const v = parseFloat(inp.value);
+        if (!isNaN(v) && v >= -90 && v <= 90) { zone.lat = v; inp.value = v.toFixed(7); }
+        else inp.value = zone.lat.toFixed(7);
+      } else if (inp.dataset.field === 'lng') {
+        const v = parseFloat(inp.value);
+        if (!isNaN(v) && v >= -180 && v <= 180) { zone.lng = v; inp.value = v.toFixed(7); }
+        else inp.value = zone.lng.toFixed(7);
       }
       saveZones();
       if (state.tab === 'today') renderToday();
@@ -1131,8 +1140,7 @@ function renderEventRow(row) {
 
     const tagPills = renderTagPills(tags, e1.who, e1);
     const retroPill = (e1.retroactive || e2.retroactive) ? '<span class="tag retro">added later</span>' : '';
-    const gpsLabel = locationLabel(e1.coords || e2.coords);
-    const displayLoc = gpsLabel || e1.location || e2.location || '';
+    const displayLoc = e1.location || e2.location || locationLabel(e1.coords || e2.coords) || '';
     const locText = displayLoc ? ` <span class="tag location">📍${escapeHtml(displayLoc)}</span>` : '';
     el.innerHTML = `
       <div class="event-icon">🟨💩</div>
@@ -1170,8 +1178,7 @@ function renderEventRow(row) {
 
     const noteText = e.note ? `<div class="event-note">"${escapeHtml(e.note)}"</div>` :
                      e.description ? `<div class="event-note">${escapeHtml(e.description)}</div>` : '';
-    const gpsLabel = (e.type === 'pee' || e.type === 'poop') ? locationLabel(e.coords) : null;
-    const displayLoc = gpsLabel || e.location || '';
+    const displayLoc = e.location || ((e.type === 'pee' || e.type === 'poop') ? (locationLabel(e.coords) || '') : '');
     const locText = displayLoc ? ` <span class="tag location">📍${escapeHtml(displayLoc)}</span>` : '';
 
     el.innerHTML = `
@@ -1400,7 +1407,8 @@ function renderDayView(dayStart) {
       const w = WHO_OPTIONS.find(w => w.id === e.who);
       if (w) extras += ` <span class="day-tags">${escapeHtml(w.label)}</span>`;
     }
-    if (e.location) extras += ` <span class="day-tags">📍${escapeHtml(e.location)}</span>`;
+    const calLoc = e.location || ((e.type === 'pee' || e.type === 'poop') ? locationLabel(e.coords) : null);
+    if (calLoc) extras += ` <span class="day-tags">📍${escapeHtml(calLoc)}</span>`;
     if (e.note) extras += ` <span class="day-tags">"${escapeHtml(e.note)}"</span>`;
     if (e.description) extras += ` <span class="day-tags">${escapeHtml(e.description)}</span>`;
 
@@ -1714,7 +1722,8 @@ function openEditModal(evt) {
     document.getElementById('end-time').value = evt.end_time ? toLocalISO(evt.end_time) : '';
   }
   document.getElementById('event-note').value = evt.note || '';
-  document.getElementById('event-location').value = evt.location || '';
+  // Show the effective location: manual override if set, else GPS-resolved zone/city.
+  document.getElementById('event-location').value = evt.location || locationLabel(evt.coords) || '';
   const subkind = evt.enrichment_kind || evt.medication_name || evt.episode_kind || evt.appointment_kind || evt.outing_kind || evt.meal_type;
   document.getElementById('event-subkind').value = subkind || '';
   refreshTagAvailability();
@@ -2064,7 +2073,12 @@ function init() {
     }
     const note = document.getElementById('event-note').value.trim();
     const subkind = document.getElementById('event-subkind').value.trim();
-    const location = document.getElementById('event-location').value.trim();
+    const typedLoc = document.getElementById('event-location').value.trim();
+    // If the typed value matches what GPS would auto-resolve to, treat as no override
+    // (so future zone renames keep flowing through). Otherwise store the manual override.
+    const editingEvt = state.editingId ? state.events.find(e => e.id === state.editingId) : null;
+    const autoLoc = editingEvt ? (locationLabel(editingEvt.coords) || '') : '';
+    const location = (typedLoc && typedLoc !== autoLoc) ? typedLoc : '';
     const isRetro = state.modalState.mins === 'custom' || (state.modalState.mins && state.modalState.mins !== 'now');
 
     if (state.editingId) {
