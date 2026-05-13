@@ -480,8 +480,18 @@ function updateEvent(id, updates) {
 // ============================================================
 // Predictions
 // ============================================================
-function activeSlumber() {
-  return state.events.find(e => e.type === 'slumber' && !e.end_time);
+// Any in-progress sleep, nap or slumber alike. The unified "Sleep" tile and the
+// motive-suppression logic both treat naps and slumbers as the same event for live
+// purposes — they only differ in *classification at start time* (clock-based).
+function activeSleep() {
+  return state.events.find(e => (e.type === 'nap' || e.type === 'slumber') && !e.end_time);
+}
+
+// Decide nap vs slumber based on when sleep is *starting*. Anything begun between
+// 5pm and 6am counts as slumber; everything else is a nap.
+function classifySleepStart(now = Date.now()) {
+  const h = new Date(now).getHours();
+  return (h >= 17 || h < 6) ? 'slumber' : 'nap';
 }
 
 // --- Motive bars (Sims-style) ---
@@ -578,7 +588,7 @@ function _learnBumps(peeEvents, wakeTimes, mealTimes) {
 // Generic drain model: level = 1 - (time_since_last_event / capacity). Caller computes
 // capacity from history with a sparsity fallback. Slumber pauses the bar (UX choice).
 function _drainMotive({ now, eventType, minGap, maxGap, defaultCapacity }) {
-  if (activeSlumber()) return { level: 1, zone: 'ok', suppressed: 'slumber' };
+  if (activeSleep()) return { level: 1, zone: 'ok', suppressed: 'sleep' };
 
   const windowStart = now - MOTIVE_WINDOW_DAYS * 86400000;
   const events = state.events
@@ -600,7 +610,7 @@ function _drainMotive({ now, eventType, minGap, maxGap, defaultCapacity }) {
 }
 
 function bladderState(now = Date.now()) {
-  if (activeSlumber()) return { level: 1, zone: 'ok', suppressed: 'slumber' };
+  if (activeSleep()) return { level: 1, zone: 'ok', suppressed: 'sleep' };
 
   const windowStart = now - MOTIVE_WINDOW_DAYS * 86400000;
   const peeEvents = state.events
@@ -678,20 +688,20 @@ function energyState(now = Date.now()) {
   }
   const wakeCapacity = wakeWindows.length >= 3 ? _median(wakeWindows) : ENERGY_DEFAULT_WAKE_CAPACITY_MS;
 
-  const activeSleep = sleeps.find(e => !e.end_time);
-  if (activeSleep) {
+  const activeSleepEvt = sleeps.find(e => !e.end_time);
+  if (activeSleepEvt) {
     // Estimate level at sleep start from the preceding wake window, then linearly
     // refill toward 1.0 over typicalSleepMs.
     const priorEnd = sleeps
-      .filter(e => e.end_time && e.end_time <= activeSleep.time)
+      .filter(e => e.end_time && e.end_time <= activeSleepEvt.time)
       .map(e => e.end_time)
       .sort((a, b) => b - a)[0];
     let levelAtStart = 1;
     if (priorEnd) {
-      const wakeBefore = activeSleep.time - priorEnd;
+      const wakeBefore = activeSleepEvt.time - priorEnd;
       levelAtStart = Math.max(-0.3, 1 - wakeBefore / wakeCapacity);
     }
-    const sleepDur = now - activeSleep.time;
+    const sleepDur = now - activeSleepEvt.time;
     const refill = Math.min(1, sleepDur / typicalSleepMs);
     const level = Math.min(1, levelAtStart + (1 - levelAtStart) * refill);
     return { level, zone: motiveZone(level), suppressed: null };
@@ -730,15 +740,15 @@ function drainMotiveText(eventType, st, now) {
   const evt = state.events.find(e => e.type === eventType);
   if (!evt) return 'no data';
   const t = formatDuration(now - evt.time);
-  return st.suppressed === 'slumber' ? `${t} · sleeping` : t;
+  return st.suppressed === 'sleep' ? `${t} · sleeping` : t;
 }
 
 // Right-column text for the energy motive: phase-aware (awake / asleep / napping).
 function energyMotiveText(now) {
-  const activeSleep = state.events.find(e => (e.type === 'nap' || e.type === 'slumber') && !e.end_time);
-  if (activeSleep) {
-    const dur = formatDuration(now - activeSleep.time);
-    return activeSleep.type === 'slumber' ? `${dur} asleep` : `${dur} napping`;
+  const evt = activeSleep();
+  if (evt) {
+    const dur = formatDuration(now - evt.time);
+    return evt.type === 'slumber' ? `${dur} asleep` : `${dur} napping`;
   }
   const sleepEnds = state.events
     .filter(e => (e.type === 'slumber' || e.type === 'nap') && e.end_time)
@@ -749,7 +759,7 @@ function energyMotiveText(now) {
 
 function predictions() {
   const now = Date.now();
-  if (activeSlumber()) return { restOfDay: null, suppressed: 'slumber' };
+  if (activeSleep()) return { restOfDay: null, suppressed: 'sleep' };
 
   // Rest of day
   let restOfDay = null;
@@ -961,28 +971,29 @@ function renderTagPills(tags, who, evt) {
 }
 
 function renderRangeTiles() {
-  for (const t of ['nap', 'walk', 'slumber']) {
-    renderRangeTile(t, findActiveRange(t));
-  }
+  // 'sleep' is a virtual tile — it represents any active nap or slumber. When the
+  // user starts one, classifySleepStart() picks the underlying type by clock.
+  renderRangeTile('sleep', activeSleep(), { icon: '💤', startLabel: 'Start sleep' });
+  renderRangeTile('walk',  findActiveRange('walk'), { icon: '🚶', startLabel: 'Start walk' });
 }
-function renderRangeTile(type, active) {
-  const tile = document.getElementById('range-' + type);
+function renderRangeTile(tileKey, active, opts) {
+  const tile = document.getElementById('range-' + tileKey);
   if (!tile) return;
   if (active) {
     const dur = formatDuration(Date.now() - active.time);
+    const def = TYPE_DEFS[active.type];
     tile.classList.add('active');
     tile.innerHTML = `
-      <span class="icon">${TYPE_DEFS[type].icon}</span>
-      <div class="label">End ${type}</div>
+      <span class="icon">${def.icon}</span>
+      <div class="label">End ${active.type}</div>
       <div class="sub">${dur}</div>
     `;
     tile.dataset.activeId = active.id;
   } else {
     tile.classList.remove('active');
-    const labelMap = { nap: 'Start nap', walk: 'Start walk', slumber: 'Start slumber' };
     tile.innerHTML = `
-      <span class="icon">${TYPE_DEFS[type].icon}</span>
-      <div class="label">${labelMap[type]}</div>
+      <span class="icon">${opts.icon}</span>
+      <div class="label">${opts.startLabel}</div>
       <div class="sub">tap to begin</div>
     `;
     delete tile.dataset.activeId;
@@ -1675,10 +1686,15 @@ function init() {
   // Range tiles
   document.querySelectorAll('[data-range-type]').forEach(tile => {
     tile.addEventListener('click', () => {
-      const type = tile.dataset.rangeType;
+      const tileKey = tile.dataset.rangeType;
       const activeId = tile.dataset.activeId;
-      if (activeId) endRange(activeId);
-      else startRange(type);
+      if (activeId) {
+        endRange(activeId);
+      } else {
+        // 'sleep' is a virtual tile — pick nap or slumber based on clock at start.
+        const type = tileKey === 'sleep' ? classifySleepStart() : tileKey;
+        startRange(type);
+      }
       renderRangeTiles();
       renderToday();
     });

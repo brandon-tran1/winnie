@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v11-drop-schedule';
+const CACHE = 'winnie-v12-unified-sleep';
 const ASSETS = [
   './',
   './index.html',
