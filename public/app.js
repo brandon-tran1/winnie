@@ -195,6 +195,128 @@ function locationLabel(coords) {
 }
 
 // ============================================================
+// Zones — settings UI
+// ============================================================
+function renderZonesList() {
+  const list = document.getElementById('zones-list');
+  if (!list) return;
+  list.innerHTML = state.zones.map(z => `
+    <div class="zone-row" data-zone-id="${z.id}">
+      <div class="zone-info">
+        <input class="zone-name-input" type="text" value="${escapeHtml(z.name)}" data-zone-id="${z.id}" data-field="name" />
+        <div class="zone-meta">
+          <input class="zone-radius-input" type="number" min="20" max="2000" step="10" value="${z.radius}" data-zone-id="${z.id}" data-field="radius" />m
+          <span class="zone-coords">${z.lat.toFixed(4)}, ${z.lng.toFixed(4)}</span>
+        </div>
+      </div>
+      <button class="zone-action" data-action="recapture" data-zone-id="${z.id}" type="button" title="Update to current location">📍</button>
+      <button class="zone-action" data-action="delete" data-zone-id="${z.id}" type="button" title="Delete">×</button>
+    </div>
+  `).join('');
+
+  // Auto-save inline name + radius edits on change
+  list.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const zone = state.zones.find(z => z.id === inp.dataset.zoneId);
+      if (!zone) return;
+      if (inp.dataset.field === 'name') {
+        zone.name = inp.value.trim() || 'Unnamed';
+      } else if (inp.dataset.field === 'radius') {
+        zone.radius = Math.max(20, Math.min(2000, parseInt(inp.value, 10) || 100));
+        inp.value = zone.radius;
+      }
+      saveZones();
+      if (state.tab === 'today') renderToday();
+    });
+  });
+
+  list.querySelectorAll('.zone-action').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.zoneId;
+      const action = btn.dataset.action;
+      if (action === 'delete') {
+        const zone = state.zones.find(z => z.id === id);
+        if (zone && confirm(`Delete "${zone.name}"?`)) {
+          state.zones = state.zones.filter(z => z.id !== id);
+          saveZones();
+          renderZonesList();
+          if (state.tab === 'today') renderToday();
+        }
+      } else if (action === 'recapture') {
+        recaptureZoneCoords(id, btn);
+      }
+    });
+  });
+}
+
+function recaptureZoneCoords(id, btn) {
+  if (!navigator.geolocation) { alert('GPS not available on this device.'); return; }
+  const orig = btn.textContent;
+  btn.textContent = '…'; btn.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const zone = state.zones.find(z => z.id === id);
+      if (zone) {
+        zone.lat = pos.coords.latitude;
+        zone.lng = pos.coords.longitude;
+        saveZones();
+      }
+      renderZonesList();
+      if (state.tab === 'today') renderToday();
+    },
+    err => {
+      alert('Could not get GPS fix: ' + (err.message || 'unknown'));
+      btn.textContent = orig; btn.disabled = false;
+    },
+    { ...GEO_OPTIONS, maximumAge: 0 }
+  );
+}
+
+function openAddZoneForm() {
+  document.getElementById('add-zone-btn').classList.add('hidden');
+  const form = document.getElementById('zone-form');
+  form.classList.remove('hidden');
+  document.getElementById('zone-form-name').value = '';
+  document.getElementById('zone-form-radius').value = '100';
+  document.getElementById('zone-form-status').textContent = '';
+  document.getElementById('zone-form-save').disabled = false;
+  document.getElementById('zone-form-name').focus();
+}
+function closeAddZoneForm() {
+  document.getElementById('zone-form').classList.add('hidden');
+  document.getElementById('add-zone-btn').classList.remove('hidden');
+}
+function saveNewZone() {
+  const name = document.getElementById('zone-form-name').value.trim();
+  const statusEl = document.getElementById('zone-form-status');
+  if (!name) { statusEl.textContent = 'Name required.'; return; }
+  if (!navigator.geolocation) { statusEl.textContent = 'GPS not available.'; return; }
+  const radius = Math.max(20, Math.min(2000, parseInt(document.getElementById('zone-form-radius').value, 10) || 100));
+  statusEl.textContent = 'Capturing location…';
+  const saveBtn = document.getElementById('zone-form-save');
+  saveBtn.disabled = true;
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      state.zones.push({
+        id: 'zone_' + Date.now().toString(36),
+        name, radius,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      });
+      saveZones();
+      closeAddZoneForm();
+      renderZonesList();
+      if (state.tab === 'today') renderToday();
+    },
+    err => {
+      statusEl.textContent = 'GPS failed: ' + (err.message || 'unknown');
+      saveBtn.disabled = false;
+    },
+    { ...GEO_OPTIONS, maximumAge: 0 }
+  );
+}
+
+// ============================================================
 // Utilities
 // ============================================================
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -2014,8 +2136,14 @@ function init() {
   // Settings
   document.getElementById('settings-btn').addEventListener('click', () => {
     document.getElementById('settings-bin').value = state.binId;
+    document.getElementById('zone-form').classList.add('hidden');
+    document.getElementById('add-zone-btn').classList.remove('hidden');
+    renderZonesList();
     document.getElementById('settings-modal').classList.add('visible');
   });
+  document.getElementById('add-zone-btn').addEventListener('click', openAddZoneForm);
+  document.getElementById('zone-form-cancel').addEventListener('click', closeAddZoneForm);
+  document.getElementById('zone-form-save').addEventListener('click', saveNewZone);
   document.getElementById('settings-cancel').addEventListener('click', () => {
     document.getElementById('settings-modal').classList.remove('visible');
   });

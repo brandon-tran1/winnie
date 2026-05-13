@@ -1,4 +1,4 @@
-const CACHE = 'winnie-v14-gps-zones';
+const CACHE = 'winnie-v15-zone-settings';
 const ASSETS = [
   './',
   './index.html',
